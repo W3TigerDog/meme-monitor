@@ -57,9 +57,21 @@
       border-radius: 14px;
       background: #fff;
     }
+    .debug {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #888;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 12px;
+      background: #f6f6f6;
+      border: 1px solid #eee;
+      padding: 1px 6px;
+      border-radius: 8px;
+    }
   </style>
 </head>
-
 
 <body>
 
@@ -93,7 +105,6 @@
   <div id="list"></div>
 
   <script>
-    // ✅ Hard window: only show memes created within last 10 minutes
     const AGE_MAX = 10;
 
     const titleEl = document.getElementById("title");
@@ -128,14 +139,13 @@
     }
 
     function tickClocks() {
-      clockET.textContent = nowInTZ("America/New_York");        // ET
-      clockMT.textContent = nowInTZ("America/Denver");          // MT (Denver)
-      clockPT.textContent = nowInTZ("America/Los_Angeles");     // PT
+      clockET.textContent = nowInTZ("America/New_York");
+      clockMT.textContent = nowInTZ("America/Denver");
+      clockPT.textContent = nowInTZ("America/Los_Angeles");
     }
 
     tickClocks();
     setInterval(tickClocks, 1000);
-    // ====================================
 
     // ===== Time format: ET | MT | PT | UTC =====
     function pad2(n) { return String(n).padStart(2, "0"); }
@@ -170,14 +180,7 @@
       }).formatToParts(d);
 
       const get = (type) => parts.find(p => p.type === type)?.value || "";
-      const y = get("year");
-      const mo = get("month");
-      const da = get("day");
-      const hh = get("hour");
-      const mm = get("minute");
-      const ss = get("second");
-
-      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} ${label}`;
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
     }
 
     function formatTimeZones(iso) {
@@ -187,14 +190,19 @@
       const utc = formatUTC(iso);
       return [et, mt, pt, utc].filter(Boolean).join(" | ");
     }
-    // =====================================
 
-    // ✅ Compute live age (minutes) from ts (more reliable than server-sent ageMin)
-    function ageMinNow(x) {
+    // ✅ STRICT age: always compute minutes from ts, never trust ageMin
+    function parseTs(x){
       const ts = x?.ts || x?.timestamp || x?.createdAt;
-      if (!ts) return (x?.ageMin == null ? null : Number(x.ageMin));
+      if(!ts) return null;
       const t = new Date(ts).getTime();
-      if (Number.isNaN(t)) return (x?.ageMin == null ? null : Number(x.ageMin));
+      if(Number.isNaN(t)) return null;
+      return t;
+    }
+
+    function ageMinutesFromTs(x){
+      const t = parseTs(x);
+      if(t == null) return null;
       return (Date.now() - t) / 60000;
     }
 
@@ -262,7 +270,6 @@
 
       beepTimes(n);
     }
-    // ======================================
 
     function parseReasonItem(r) {
       const s = String(r ?? "");
@@ -280,14 +287,8 @@
       for (const r of (reasons || [])) {
         const item = parseReasonItem(r);
 
-        if (item.pts < 0) {
-          risk.push(item);
-          continue;
-        }
-        if (/^(liq\+|px\+)/i.test(item.text)) {
-          momentum.push(item);
-          continue;
-        }
+        if (item.pts < 0) { risk.push(item); continue; }
+        if (/^(liq\+|px\+)/i.test(item.text)) { momentum.push(item); continue; }
         base.push(item);
       }
 
@@ -320,12 +321,15 @@
       const minScore = Number(minScoreEl.value || 0);
       const kw = (kwEl.value || "").toLowerCase().trim();
 
-      // ✅ update ages, drop old ones
-      const ageFiltered = items
-        .map(x => ({ ...x, _age: ageMinNow(x) }))
-        .filter(x => x._age != null && Number.isFinite(x._age) && x._age <= AGE_MAX);
+      // ✅ compute strict age (minutes) from ts
+      const withAge = items
+        .map(x => ({ ...x, _ts: parseTs(x), _ageMin: ageMinutesFromTs(x) }))
+        .filter(x => x._ts != null && x._ageMin != null && Number.isFinite(x._ageMin));
 
-      const filtered = ageFiltered.filter(x => {
+      // ✅ only show within AGE_MAX minutes
+      const windowed = withAge.filter(x => x._ageMin <= AGE_MAX);
+
+      const filtered = windowed.filter(x => {
         if (!x || typeof x !== "object" || !x.tokenSymbol) return false;
         if (Number(x.score) < minScore) return false;
         if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
@@ -333,7 +337,7 @@
       });
 
       // ✅ sort newest first, then higher score
-      filtered.sort((a, b) => (a._age - b._age) || (Number(b.score) - Number(a.score)));
+      filtered.sort((a, b) => (a._ageMin - b._ageMin) || (Number(b.score) - Number(a.score)));
 
       if (!filtered.length) {
         list.innerHTML = `
@@ -341,6 +345,9 @@
             <div style="font-weight:900;">No matches in the last ${AGE_MAX} minutes</div>
             <div class="muted" style="margin-top:6px;">
               Try lowering <b>Min Score</b>, clearing <b>Keyword</b>, or wait for new launches.
+            </div>
+            <div class="debug" style="margin-top:10px;">
+              Debug: This page now <b>only trusts <code>ts</code></b>. If you see nothing, your backend messages might be missing <code>ts</code>.
             </div>
           </div>
         `;
@@ -356,7 +363,13 @@
         return `
           <div class="card">
             <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
-            <div class="muted">${formatTimeZones(x.ts)} | age: ${x._age.toFixed(1)} min</div>
+            <div class="muted">${formatTimeZones(x.ts)} | age: ${x._ageMin.toFixed(1)} min</div>
+
+            <div class="debug">
+              debug: <code>ts_ok</code> ${x._ts != null ? "yes" : "no"}
+              ${x.ageMin != null ? ` | <code>raw_ageMin</code> ${x.ageMin}` : ""}
+            </div>
+
             <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
 
             <div class="muted">
@@ -404,9 +417,9 @@
         const msg = JSON.parse(ev.data);
         if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
 
-        // ✅ reject old ones immediately (using ts if possible)
-        const a = ageMinNow(msg);
-        if (a == null || !Number.isFinite(a) || a > AGE_MAX) return;
+        // ✅ strict filter: ts -> minutes
+        const age = ageMinutesFromTs(msg);
+        if (age == null || !Number.isFinite(age) || age > AGE_MAX) return;
 
         items.unshift(msg);
         items = items.slice(0, 200);
@@ -418,11 +431,11 @@
       }
     };
 
-    // ✅ prune + refresh UI so age counts down even if no new events
+    // ✅ prune + refresh UI (strict ts-based)
     setInterval(() => {
       items = items.filter(x => {
-        const a = ageMinNow(x);
-        return a != null && Number.isFinite(a) && a <= AGE_MAX;
+        const age = ageMinutesFromTs(x);
+        return age != null && Number.isFinite(age) && age <= AGE_MAX;
       });
       render();
     }, 20000);

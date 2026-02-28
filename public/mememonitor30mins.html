@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Meme Monitor Dashboard</title>
+<title>Meme Monitor Dashboard (30 minutes)</title>
 
 <style>
 body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; background:#fafafa; }
 .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 input { padding:8px; }
+button { padding:8px 12px; }
 .card { border:1px solid #e5e5e5; border-radius:14px; padding:14px; margin:12px 0; background:#fff; }
 .muted { color:#666; font-size:12px; }
 .score { font-weight:900; }
@@ -71,13 +72,20 @@ a { word-break: break-all; }
   padding:2px 6px;
   border-radius:8px;
 }
+
+.empty{
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed #ddd;
+  border-radius: 14px;
+  background: #fff;
+}
 </style>
 </head>
 
 <body>
 
-<!-- ✅ changed to 60 minutes -->
-<h2>🚀 Meme Monitor Dashboard (60 minutes)</h2>
+<h2>🚀 Meme Monitor Dashboard (30 minutes)</h2>
 
 <!-- Live Clocks -->
 <div class="clockbar">
@@ -95,9 +103,9 @@ a { word-break: break-all; }
     <input id="kw" placeholder="e.g. dog, pepe">
   </label>
 
-  <!-- ✅ default value changed to 60 -->
+  <!-- ✅ fixed to 30 -->
   <label>Age Window (minutes):
-    <input id="ageWindow" class="small" type="number" value="60" min="1" max="240">
+    <input id="ageWindow" class="small" type="number" value="30" min="1" max="240">
   </label>
 
   <label>Alert V2 Score ≥
@@ -117,9 +125,8 @@ a { word-break: break-all; }
 Click anywhere once to enable sound alerts.
 </div>
 
-<!-- ✅ default label changed to 60 -->
 <div class="muted" style="margin-top:6px;">
-Now watching: <b>new memes published within <span id="ageWindowLabel">60</span> minutes</b>
+Now watching: <b>new memes published within <span id="ageWindowLabel">30</span> minutes</b>
 </div>
 
 <div id="list"></div>
@@ -137,10 +144,10 @@ const soundOnEl = document.getElementById("soundOn");
 const ageWindowEl = document.getElementById("ageWindow");
 const ageWindowLabel = document.getElementById("ageWindowLabel");
 
-// ✅ WATCH WINDOW: 60 min by default (user can change)
+// ✅ default 30
 function getAgeMax(){
-  const v = Number(ageWindowEl.value || 60);
-  return Number.isFinite(v) ? Math.max(1, v) : 60;
+  const v = Number(ageWindowEl.value || 30);
+  return Number.isFinite(v) ? Math.max(1, v) : 30;
 }
 
 let items = [];
@@ -167,10 +174,12 @@ setInterval(tickClocks, 1000);
 function pad2(n){ return String(n).padStart(2,"0"); }
 function formatUTC(iso){
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
 }
 function formatInTZ(iso, tz, label){
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-CA",{
     timeZone:tz,
     year:"numeric",
@@ -190,7 +199,7 @@ function formatTimeZones(iso){
     formatInTZ(iso,"America/Phoenix","MT"),
     formatInTZ(iso,"America/Los_Angeles","PT"),
     formatUTC(iso)
-  ].join(" | ");
+  ].filter(Boolean).join(" | ");
 }
 
 /* -------------------- SOUND -------------------- */
@@ -228,16 +237,41 @@ async function beepTimes(n){
 }
 function tryBeep(v2Score){
   if(!soundOnEl.checked) return;
+  if(!audioUnlocked) return;
   const threshold=Number(alertScoreEl.value||0);
   if(v2Score<threshold) return;
   const n=Math.min(5,1+(v2Score-threshold));
   beepTimes(n);
 }
 
+/* -------------------- HELPERS -------------------- */
+function toNum(x){
+  if(x === null || x === undefined) return null;
+  if(typeof x === "number") return Number.isFinite(x) ? x : null;
+  const s = String(x).trim();
+  if(!s) return null;
+  const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+
+// ✅ reliable age in MINUTES (ts-based). If ts missing, fallback to ageMin.
+function ageMinNow(x){
+  const ts = x?.ts || x?.timestamp || x?.createdAt;
+  if(ts){
+    const t = new Date(ts).getTime();
+    if(!Number.isNaN(t)){
+      return (Date.now() - t) / 60000;
+    }
+  }
+  return toNum(x?.ageMin);
+}
+
 /* -------------------- SCORE DETAILS (existing renderer) -------------------- */
 function parseReasonItem(r){
   const s = String(r ?? "");
-  const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
+  const m = s.match(/\(([-+]\d+)\)/);
   const pts = m ? Number(m[1]) : 0;
   const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
   return { pts, text };
@@ -248,14 +282,8 @@ function groupReasons(reasons){
   const risk = [];
   for(const r of (reasons || [])){
     const item = parseReasonItem(r);
-    if(item.pts < 0){
-      risk.push(item);
-      continue;
-    }
-    if(/^(liq\+|px\+)/i.test(item.text)){
-      momentum.push(item);
-      continue;
-    }
+    if(item.pts < 0){ risk.push(item); continue; }
+    if(/^(liq\+|px\+)/i.test(item.text)){ momentum.push(item); continue; }
     base.push(item);
   }
   base.sort((a,b)=>b.pts-a.pts);
@@ -282,38 +310,17 @@ function renderReasonList(arr){
   `;
 }
 
-/* -------------------- V2 HELPERS -------------------- */
-function toNum(x){
-  if(x === null || x === undefined) return null;
-  if(typeof x === "number") return Number.isFinite(x) ? x : null;
-  const s = String(x).trim();
-  if(!s) return null;
-  const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
-function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
-
+/* -------------------- V2 EXTRACTORS -------------------- */
 function extractFromReasons(reasons){
-  const out = {
-    liqPct3m: null,
-    pxPct1m: null,
-    pxPct5m: null,
-    buys5m_ge_sells5m: false,
-    buys5m_le_sells5m: false,
-  };
+  const out = { liqPct3m:null, pxPct1m:null, pxPct5m:null, buys5m_ge_sells5m:false, buys5m_le_sells5m:false };
   for(const r of (reasons || [])){
     const { text } = parseReasonItem(r);
-
     let m = text.match(/^liq\+(\d+(?:\.\d+)?)%\s*\/\s*3m/i);
     if(m) out.liqPct3m = Number(m[1]);
-
     m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*1m/i);
     if(m) out.pxPct1m = Number(m[1]);
-
     m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*5m/i);
     if(m) out.pxPct5m = Number(m[1]);
-
     if(/buys5m\s*>=\s*sells5m/i.test(text)) out.buys5m_ge_sells5m = true;
     if(/buys5m\s*<=\s*sells5m/i.test(text)) out.buys5m_le_sells5m = true;
   }
@@ -323,8 +330,7 @@ function extractFromReasons(reasons){
 /* -------------------- V2 SCORING -------------------- */
 function scoreV2(msg){
   const tags = [];
-
-  const ageMin = toNum(msg.ageMin);
+  const ageMin = ageMinNow(msg);
   const liqUsd = toNum(msg.liquidityUsd);
   const fdv    = toNum(msg.fdv);
   const vol24  = toNum(msg.volume24h);
@@ -339,7 +345,6 @@ function scoreV2(msg){
   const px1m = rx.pxPct1m;
   const px5m = rx.pxPct5m;
 
-  // Tags
   let turnover = null;
   if(liqUsd !== null && liqUsd > 0 && vol24 !== null){
     turnover = vol24 / liqUsd;
@@ -347,58 +352,43 @@ function scoreV2(msg){
   }
   if(liqUsd !== null && liqUsd < 5000) tags.push("Illiquid Microcap");
 
-  // Liquidity Quality (0–2)
   let A = 0;
   if(liqUsd !== null){
     if(liqUsd >= 25000) A = 2;
     else if(liqUsd >= 10000) A = 1;
-    else A = 0;
   }
 
-  // Participation (0–2)
   let B = 0;
   if(makers !== null){
     if(makers >= 300) B = 2;
     else if(makers >= 80) B = 1;
-    else B = 0;
   } else {
     if(vol24 !== null && vol24 >= 50000) B = 1;
-    else B = 0;
   }
 
-  // Orderflow (0–2)
   let C = 0;
   if(buys !== null && sells !== null && sells > 0){
     const ratio = buys / sells;
     if(ratio >= 1.5 && (buyVol === null || sellVol === null || buyVol > sellVol)) C = 2;
     else if(ratio >= 1.1) C = 1;
-    else C = 0;
   } else if(rx.buys5m_ge_sells5m){
     C = 1;
-  } else if(rx.buys5m_le_sells5m){
-    C = 0;
   }
 
-  // Volume Energy (0–2)
   const vol5m = toNum(msg.volume5m) ?? null;
   const vol15m = toNum(msg.volume15m) ?? null;
-
   let D = 0;
   if(vol5m !== null){
     if(vol5m >= 50000) D = 2;
     else if(vol5m >= 15000) D = 1;
-    else D = 0;
   } else if(vol15m !== null){
     if(vol15m >= 120000) D = 2;
     else if(vol15m >= 40000) D = 1;
-    else D = 0;
   } else if(vol24 !== null){
     if(vol24 >= 200000) D = 2;
     else if(vol24 >= 50000) D = 1;
-    else D = 0;
   }
 
-  // Price Structure (0–2) + FOMO Spike tag
   let E = 0;
   const fomoSpike = (px1m !== null && px1m > 25) || (px5m !== null && px5m > 60);
   if(fomoSpike){
@@ -414,12 +404,10 @@ function scoreV2(msg){
 
   let v2Score = clamp(A + B + C + D + E, 0, 10);
 
-  // Confidence
   let confidence = "Low";
   if(v2Score >= 7) confidence = "High";
   else if(v2Score >= 5) confidence = "Medium";
 
-  // Stage / Action
   let stage = "Watch";
   let action = "Watch";
 
@@ -446,13 +434,11 @@ function scoreV2(msg){
       stage = "Watch";
       action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Watch";
     }
-
     if(tags.includes("High Turnover") && action !== "Avoid"){
       action = action.includes("Wait") ? action : "Watch (High Turnover)";
     }
   }
 
-  // v2 reasons (keeps your grouping)
   const v2Reasons = [];
   v2Reasons.push(`Liquidity Quality: ${A}/2 (+${A})`);
   v2Reasons.push(`Participation: ${B}/2 (+${B})`);
@@ -464,7 +450,6 @@ function scoreV2(msg){
   if(turnover !== null) v2Reasons.push(`turnover=vol24/liqUsd=${turnover.toFixed(1)}x (+0)`);
   v2Reasons.push(`Confidence: ${confidence} (+0)`);
 
-  // keep original momentum strings if present
   for(const r of (msg.reasons || [])){
     const { text, pts } = parseReasonItem(r);
     if(/^(liq\+|px\+)/i.test(text)){
@@ -482,30 +467,21 @@ function scoreV2(msg){
 
 function applyV2(msg){
   const v2 = scoreV2(msg);
-  return {
-    ...msg,
-    v2Score: v2.v2Score,
-    v2Stage: v2.stage,
-    v2Tags: v2.tags,
-    v2Action: v2.action,
-    v2Reasons: v2.v2Reasons,
-    v2Confidence: v2.confidence
-  };
+  return { ...msg, v2Score:v2.v2Score, v2Stage:v2.stage, v2Tags:v2.tags, v2Action:v2.action, v2Reasons:v2.v2Reasons, v2Confidence:v2.confidence };
 }
 
 /* -------------------- AGE WINDOW FILTER -------------------- */
 function withinAgeWindow(x){
   const ageMax = getAgeMax();
-  const age = toNum(x.ageMin);
+  const age = ageMinNow(x);
   if(age === null) return false;
   return age <= ageMax;
 }
 
-// prune old items periodically so list stays “new”
 function pruneOld(){
   const ageMax = getAgeMax();
   items = items.filter(x => {
-    const a = toNum(x.ageMin);
+    const a = ageMinNow(x);
     return a !== null && a <= ageMax;
   });
   render();
@@ -532,17 +508,35 @@ function render(){
   const kw = (kwEl.value || "").toLowerCase().trim();
   const ageMax = getAgeMax();
 
-  const filtered = items.filter(x=>{
+  // refresh computed ages for correct display
+  const enriched = items.map(x => ({ ...x, _ageMin: ageMinNow(x) }));
+
+  const filtered = enriched.filter(x=>{
     const s = Number(x.v2Score ?? x.score ?? 0);
     if(s < minScore) return false;
     if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
 
-    const age = toNum(x.ageMin);
-    if(age === null) return false;
-    if(age > ageMax) return false; // ✅ only show within 60 mins now (default)
+    const age = x._ageMin;
+    if(age === null || !Number.isFinite(age)) return false;
+    if(age > ageMax) return false;
 
     return true;
   });
+
+  // newest first (smaller age), then higher score
+  filtered.sort((a,b)=> (a._ageMin - b._ageMin) || (Number(b.v2Score||0) - Number(a.v2Score||0)));
+
+  if(!filtered.length){
+    list.innerHTML = `
+      <div class="empty">
+        <div style="font-weight:900;">No matches in the last ${ageMax} minutes</div>
+        <div class="muted" style="margin-top:6px;">
+          Try lowering <b>Min V2 Score</b>, clearing <b>Keyword</b>, or wait for new launches.
+        </div>
+      </div>
+    `;
+    return;
+  }
 
   list.innerHTML = filtered.map(x=>{
     const reasons = x.v2Reasons || [];
@@ -577,7 +571,7 @@ function render(){
           }).join("")}
         </div>
 
-        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
+        <div class="muted">${formatTimeZones(x.ts)} | age: ${Number.isFinite(x._ageMin) ? x._ageMin.toFixed(1) : "?"} min</div>
 
         <div class="kpi">
           <code>liq</code> ${x.liquidityUsd ?? "?"}
@@ -600,7 +594,7 @@ function render(){
           ${renderReasonList(g.risk)}
         </div>
 
-        <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+        <div><a href="${x.url}" target="_blank" rel="noopener">Open DexScreener</a></div>
       </div>
     `;
   }).join("");
@@ -614,11 +608,16 @@ ageWindowEl.oninput = ()=>{ pruneOld(); };
 
 /* -------------------- API -------------------- */
 async function loadInitial(){
-  const res = await fetch("/api/signals");
-  const data = await res.json();
-  const raw = data.signals || [];
-  items = raw.map(applyV2).filter(withinAgeWindow);
-  render();
+  try{
+    const res = await fetch("/api/signals");
+    const data = await res.json();
+    const raw = data.signals || [];
+    items = raw.map(applyV2).filter(withinAgeWindow);
+    render();
+  }catch(e){
+    console.error(e);
+    statusEl.textContent = "⚠️ Failed to load /api/signals";
+  }
 }
 loadInitial();
 
@@ -628,23 +627,26 @@ es.onopen = ()=> statusEl.textContent = "✅ Connected (Live)";
 es.onerror = ()=> statusEl.textContent = "⚠️ Reconnecting...";
 
 es.onmessage = (ev)=>{
-  const msg = JSON.parse(ev.data);
-  if(!msg?.tokenSymbol) return;
+  try{
+    const msg = JSON.parse(ev.data);
+    if(!msg?.tokenSymbol) return;
 
-  const withV2 = applyV2(msg);
+    const withV2 = applyV2(msg);
+    if(!withinAgeWindow(withV2)) return;
 
-  // ✅ accept within window (default 60)
-  if(!withinAgeWindow(withV2)) return;
+    items.unshift(withV2);
+    items = items.slice(0, 200);
 
-  items.unshift(withV2);
-  items = items.slice(0, 200);
-
-  render();
-  tryBeep(withV2.v2Score ?? 0);
+    render();
+    tryBeep(withV2.v2Score ?? 0);
+  }catch(e){
+    console.error("Bad SSE msg:", e);
+  }
 };
 
-// ✅ auto prune every 20s so list always stays “<= 60 min” (default)
+// keep within window + keep age display fresh
 setInterval(pruneOld, 20000);
+setInterval(render, 10000);
 </script>
 </body>
 </html>
