@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meme Monitor Dashboard</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    input { padding:8px; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
+    .muted { color:#666; font-size: 12px; }
+    .score { font-weight:700; }
+    a { word-break: break-all; }
+
+    .group { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e5e5; }
+    .gtitle { font-size: 12px; font-weight: 800; color: #333; margin-bottom: 6px; }
+    .reasons { margin: 0; padding-left: 16px; }
+    .reasons li { margin: 4px 0; display: flex; gap: 8px; align-items: baseline; }
+    .pts { font-weight: 800; min-width: 34px; display: inline-block; }
+    .pts.pos { color: #0a7; }
+    .pts.neg { color: #d33; }
+    .rtext { color: #444; }
+
+    .toggle { display:flex; align-items:center; gap:6px; }
+    .small { width:70px; }
+
+    /* ✅ 顶部时钟条 */
+    .clockbar{
+      margin: 10px 0 14px;
+      padding: 10px 12px;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      background: #fafafa;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .clk{
+      display:flex;
+      gap:8px;
+      align-items: baseline;
+      padding: 6px 10px;
+      border: 1px dashed #ddd;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .clk .label{ font-weight: 800; }
+    .clk .time{ font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+
+<body>
+  <h2>🚀 Meme Monitor Dashboard</h2>
+
+  <!-- ✅ 现在时间：ET / MT / PT -->
+  <div class="clockbar">
+    <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
+  </div>
+
+  <div class="row">
+    <label>最小分数：<input id="minScore" type="number" value="3" min="0" max="10"></label>
+    <label>关键词：<input id="kw" placeholder="例如: dog, cat, pepe"></label>
+
+    <label>提醒分数 ≥ <input id="alertScore" class="small" type="number" value="5" min="0" max="10"></label>
+    <label class="toggle"><input id="soundOn" type="checkbox" checked>声音提醒</label>
+
+    <button id="clear">清空</button>
+    <span class="muted" id="status">连接中…</span>
+  </div>
+
+  <div class="muted" style="margin-top:6px;">
+    提示：第一次打开页面请先点击任意位置一次，浏览器才允许播放提示音。
+  </div>
+
+  <div id="list"></div>
+
+  <audio id="beep" preload="auto">
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
+  </audio>
+
+  <script>
+    const list = document.getElementById("list");
+    const minScoreEl = document.getElementById("minScore");
+    const kwEl = document.getElementById("kw");
+    const statusEl = document.getElementById("status");
+    const clearBtn = document.getElementById("clear");
+
+    const alertScoreEl = document.getElementById("alertScore");
+    const soundOnEl = document.getElementById("soundOn");
+
+    let items = [];
+
+    // ====== ✅ 顶部实时钟：ET / MT / PT ======
+    const clockET = document.getElementById("clockET");
+    const clockMT = document.getElementById("clockMT");
+    const clockPT = document.getElementById("clockPT");
+
+    function nowInTZ(tz) {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(new Date());
+    }
+
+    function tickClocks() {
+      // 自动处理夏令时（EDT/EST、MDT/MST、PDT/PST）
+      clockET.textContent = nowInTZ("America/New_York");
+      clockMT.textContent = nowInTZ("America/Edmonton");
+      clockPT.textContent = nowInTZ("America/Los_Angeles");
+    }
+
+    tickClocks();
+    setInterval(tickClocks, 1000);
+    // ========================================
+
+    // ====== ✅ 时间格式：同时显示 UTC + MT ======
+    function pad2(n) { return String(n).padStart(2, "0"); }
+
+    function formatUTC(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      const y = d.getUTCFullYear();
+      const mo = pad2(d.getUTCMonth() + 1);
+      const da = pad2(d.getUTCDate());
+      const hh = pad2(d.getUTCHours());
+      const mm = pad2(d.getUTCMinutes());
+      const ss = pad2(d.getUTCSeconds());
+      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} UTC`;
+    }
+
+    function formatMT(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Edmonton",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).formatToParts(d);
+
+      const get = (type) => parts.find(p => p.type === type)?.value || "";
+      const y = get("year");
+      const mo = get("month");
+      const da = get("day");
+      const hh = get("hour");
+      const mm = get("minute");
+      const ss = get("second");
+
+      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} MT`;
+    }
+
+    function formatTimeBoth(iso) {
+      const mt = formatMT(iso);
+      const utc = formatUTC(iso);
+      if (!mt && !utc) return "";
+      if (!mt) return utc;
+      if (!utc) return mt;
+      return `${mt} | ${utc}`;
+    }
+    // =======================================
+
+    // ====== 声音提醒（Web Audio API：稳定可听见 + 分数越高响越多次）=====
+    let audioUnlocked = false;
+    let audioCtx = null;
+
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx();
+      audioCtx.resume?.();
+      audioUnlocked = true;
+      console.log("Audio unlocked");
+    }
+
+    window.addEventListener("click", unlockAudio, { once: true });
+
+    function beepOnce() {
+      if (!audioUnlocked || !audioCtx) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = "square";
+      osc.frequency.value = 880;
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      const t = audioCtx.currentTime;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+
+      osc.start(t);
+      osc.stop(t + 0.21);
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    async function beepTimes(n) {
+      for (let i = 0; i < n; i++) {
+        beepOnce();
+        await sleep(220);
+      }
+    }
+
+    function scoreToBeeps(score, threshold) {
+      const s = Number(score);
+      const t = Number(threshold);
+      if (!Number.isFinite(s) || !Number.isFinite(t)) return 0;
+      if (s < t) return 0;
+      return Math.min(5, 1 + (s - t));
+    }
+
+    function tryBeep(score) {
+      const threshold = Number(alertScoreEl.value || 0);
+      const enabled = soundOnEl.checked;
+
+      if (!enabled) return;
+      if (!audioUnlocked) return;
+
+      const n = scoreToBeeps(score, threshold);
+      if (n <= 0) return;
+
+      beepTimes(n);
+    }
+    // ======================================================================
+
+    function parseReasonItem(r) {
+      const s = String(r);
+      const m = s.match(/\(([-+]\d+)\)/);
+      const pts = m ? Number(m[1]) : 0;
+      const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+      return { raw: s, pts, text };
+    }
+
+    function groupReasons(reasons) {
+      const base = [];
+      const momentum = [];
+      const risk = [];
+
+      for (const r of (reasons || [])) {
+        const item = parseReasonItem(r);
+
+        if (item.pts < 0 || /\(-\d+\)/.test(String(r))) {
+          risk.push(item);
+          continue;
+        }
+        if (/^(liq\+|px\+)/i.test(item.text)) {
+          momentum.push(item);
+          continue;
+        }
+        base.push(item);
+      }
+
+      base.sort((a, b) => b.pts - a.pts);
+      momentum.sort((a, b) => b.pts - a.pts);
+      risk.sort((a, b) => a.pts - b.pts);
+
+      return { base, momentum, risk };
+    }
+
+    function renderReasonList(items) {
+      if (!items.length) return `<div class="muted">（无）</div>`;
+      return `
+        <ul class="reasons">
+          ${items.map(it => `
+            <li>
+              <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+              <span class="rtext">${it.text}</span>
+            </li>
+          `).join("")}
+        </ul>
+      `;
+    }
+
+    function sumPts(items) {
+      return (items || []).reduce((acc, it) => acc + (Number(it.pts) || 0), 0);
+    }
+
+    function render() {
+      const minScore = Number(minScoreEl.value || 0);
+      const kw = (kwEl.value || "").toLowerCase().trim();
+
+      const filtered = items.filter(x => {
+        if (x.score < minScore) return false;
+        if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
+        return true;
+      });
+
+      list.innerHTML = filtered.map(x => {
+        const g = groupReasons(x.reasons || []);
+        const baseSum = sumPts(g.base);
+        const momSum = sumPts(g.momentum);
+        const riskSum = sumPts(g.risk);
+
+        return `
+          <div class="card">
+            <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
+            <div class="muted">${formatTimeBoth(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
+            <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+
+            <div class="muted">
+              <div class="group">
+                <div class="gtitle">基础分（${baseSum >= 0 ? "+" : ""}${baseSum}）</div>
+                ${renderReasonList(g.base)}
+              </div>
+              <div class="group">
+                <div class="gtitle">动量分（${momSum >= 0 ? "+" : ""}${momSum}）</div>
+                ${renderReasonList(g.momentum)}
+              </div>
+              <div class="group">
+                <div class="gtitle">风险扣分（${riskSum >= 0 ? "+" : ""}${riskSum}）</div>
+                ${renderReasonList(g.risk)}
+              </div>
+            </div>
+
+            <div><a href="${x.url}" target="_blank">打开 DexScreener</a></div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    clearBtn.onclick = () => { items = []; render(); };
+
+    async function loadInitial() {
+      const res = await fetch("/api/signals");
+      const data = await res.json();
+      items = data.signals || [];
+      render();
+    }
+
+    loadInitial();
+
+    const es = new EventSource("/events");
+    es.onopen = () => statusEl.textContent = "✅ 已连接（实时更新）";
+    es.onerror = () => statusEl.textContent = "⚠️ 连接断开，自动重连中…";
+    es.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+
+      if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
+
+      items.unshift(msg);
+      items = items.slice(0, 200);
+      render();
+
+      tryBeep(msg.score);
+    };
+
+    minScoreEl.oninput = render;
+    kwEl.oninput = render;
+  </script>
+</body>
+</html>
