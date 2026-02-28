@@ -1,372 +1,250 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Meme Monitor Dashboard</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    input { padding:8px; }
-    .card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
-    .muted { color:#666; font-size: 12px; }
-    .score { font-weight:700; }
-    a { word-break: break-all; }
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Meme Monitor Dashboard</title>
 
-    .group { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e5e5; }
-    .gtitle { font-size: 12px; font-weight: 800; color: #333; margin-bottom: 6px; }
-    .reasons { margin: 0; padding-left: 16px; }
-    .reasons li { margin: 4px 0; display: flex; gap: 8px; align-items: baseline; }
-    .pts { font-weight: 800; min-width: 34px; display: inline-block; }
-    .pts.pos { color: #0a7; }
-    .pts.neg { color: #d33; }
-    .rtext { color: #444; }
+<style>
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin:16px; background:#fafafa; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+input { padding:8px; }
+a { word-break: break-all; }
 
-    .toggle { display:flex; align-items:center; gap:6px; }
-    .small { width:80px; }
 
-    .clockbar{
-      margin: 10px 0 14px;
-      padding: 10px 12px;
-      border: 1px solid #eee;
-      border-radius: 10px;
-      background: #fafafa;
-      display: flex;
-      gap: 14px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .clk{
-      display:flex;
-      gap:8px;
-      align-items: baseline;
-      padding: 6px 10px;
-      border: 1px dashed #ddd;
-      border-radius: 10px;
-      background: #fff;
-    }
-    .clk .label{ font-weight: 800; }
-    .clk .time{ font-variant-numeric: tabular-nums; }
-  </style>
+
+
+.card{
+  border:1px solid #e5e5e5;
+  border-radius:14px;
+  padding:16px;
+  margin:14px 0;
+  background:#fff;
+}
+
+.hdr{
+  display:flex;
+  gap:10px;
+  align-items:baseline;
+  flex-wrap:wrap;
+}
+.hdr .title{
+  font-weight:900;
+  font-size:16px;
+}
+.hdr .pair{
+  font-weight:800;
+}
+
+.badges{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:10px 0;
+}
+.pill{
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  border:1px solid #eee;
+  background:#fafafa;
+}
+.pill.stage{ background:#fff5f5; border-color:#ffd7d7; }
+.pill.conf{ background:#fff9e6; border-color:#ffe7a3; }
+.pill.action{ background:#f0f7ff; border-color:#cfe4ff; }
+
+.meta{
+  font-size:12px;
+  color:#666;
+  margin-bottom:8px;
+}
+
+.section{
+  margin-top:10px;
+  padding-top:8px;
+  border-top:1px dashed #e5e5e5;
+}
+
+.section-title{
+  font-size:12px;
+  font-weight:900;
+  margin-bottom:6px;
+}
+
+.reasons{
+  margin:0;
+  padding-left:16px;
+}
+.reasons li{
+  margin:4px 0;
+  display:flex;
+  gap:8px;
+}
+.pts{
+  font-weight:900;
+  width:36px;
+}
+.pos{ color:#0a7; }
+.neg{ color:#d33; }
+.zero{ color:#999; }
+
+.small { width:80px; }
+</style>
 </head>
 
 <body>
 
-  <h2 id="title" style="color:gold;"></h2>
+<h2>🚀 Meme Monitor Dashboard</h2>
 
-  <div class="clockbar">
-    <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
-    <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
-    <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
-  </div>
+<div class="row">
+<label>Min Score: <input id="minScore" type="number" value="3"></label>
+<label>Keyword: <input id="kw"></label>
+<button id="clear">Clear</button>
+<span id="status">Connecting…</span>
+</div>
 
-  <div class="row">
-    <label>Min Score: <input id="minScore" type="number" value="3" min="0" max="10"></label>
-    <label>Keyword: <input id="kw" placeholder="e.g. dog, cat, pepe"></label>
+<div id="list"></div>
 
-    <label>Alert Score ≥ <input id="alertScore" class="small" type="number" value="5" min="0" max="10"></label>
-    <label class="toggle"><input id="soundOn" type="checkbox" checked>Sound</label>
+<script>
+const list = document.getElementById("list");
+const minScoreEl = document.getElementById("minScore");
+const kwEl = document.getElementById("kw");
+const clearBtn = document.getElementById("clear");
 
-    <button id="clear">Clear</button>
-    <span class="muted" id="status">Connecting…</span>
-  </div>
+let items = [];
 
-  <div class="muted" style="margin-top:6px;">
-    Tip: Click anywhere once after opening this page to allow the browser to play alert sounds.
-  </div>
+function parseReasonItem(r){
+  const s = String(r);
+  const m = s.match(/\(([-+]?\\d+)\\)/);
+  const pts = m ? Number(m[1]) : 0;
+  const text = s.replace(/\s*\\(([-+]?\\d+)\\)\s*/g,"").trim();
+  return { pts, text };
+}
 
-  <div id="list"></div>
+function groupReasons(reasons){
+  const base=[], momentum=[], risk=[];
+  for(const r of (reasons||[])){
+    const item=parseReasonItem(r);
+    if(item.pts<0) risk.push(item);
+    else if(/^liq\\+|^px\\+/i.test(item.text)) momentum.push(item);
+    else base.push(item);
+  }
+  return { base, momentum, risk };
+}
 
-  <audio id="beep" preload="auto">
-    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
-  </audio>
+function renderReasonList(arr){
+  if(!arr.length) return `<div class="meta">(none)</div>`;
+  return `
+  <ul class="reasons">
+  ${arr.map(r=>`
+    <li>
+      <span class="pts ${r.pts>0?'pos':r.pts<0?'neg':'zero'}">
+        ${r.pts>0?'+':''}${r.pts}
+      </span>
+      <span>${r.text}</span>
+    </li>
+  `).join("")}
+  </ul>`;
+}
 
-  <script>
-    const AGE_MAX = 10;
+function sumPts(arr){
+  return arr.reduce((a,b)=>a+b.pts,0);
+}
 
-    const titleEl = document.getElementById("title");
-    titleEl.textContent = `🚀 New Meme Monitor Dashboard (${AGE_MAX} minutes)`;
+function stageFromAge(age){
+  if(age<5) return "Stage 1 — Launch";
+  if(age<15) return "Stage 2 — Early";
+  if(age<30) return "Stage 3 — Expansion";
+  return "Stage 4 — Decay";
+}
 
-    const list = document.getElementById("list");
-    const minScoreEl = document.getElementById("minScore");
-    const kwEl = document.getElementById("kw");
-    const statusEl = document.getElementById("status");
-    const clearBtn = document.getElementById("clear");
+function render(){
+  const minScore=Number(minScoreEl.value||0);
+  const kw=(kwEl.value||"").toLowerCase();
 
-    const alertScoreEl = document.getElementById("alertScore");
-    const soundOnEl = document.getElementById("soundOn");
+  const filtered=items.filter(x=>{
+    if(x.score<minScore) return false;
+    if(kw && !x.tokenSymbol.toLowerCase().includes(kw)) return false;
+    return true;
+  });
 
-    let items = [];
+  list.innerHTML=filtered.map(x=>{
+    const g=groupReasons(x.reasons||[]);
+    const baseSum=sumPts(g.base);
+    const momSum=sumPts(g.momentum);
+    const riskSum=sumPts(g.risk);
 
-    // ===== Live clocks: ET / MT / PT =====
-    const clockET = document.getElementById("clockET");
-    const clockMT = document.getElementById("clockMT");
-    const clockPT = document.getElementById("clockPT");
+    const stage=stageFromAge(x.ageMin||0);
+    const conf=x.score>=6?"High":x.score>=4?"Medium":"Low";
+    const action=x.score>=6?"Watch":x.score>=4?"Caution":"Avoid";
 
-    function nowInTZ(tz) {
-      return new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false
-      }).format(new Date());
-    }
+    return `
+    <div class="card">
 
-    function tickClocks() {
-      clockET.textContent = nowInTZ("America/New_York");        // ET
-      clockMT.textContent = nowInTZ("America/Denver");          // MT (Denver)
-      clockPT.textContent = nowInTZ("America/Los_Angeles");     // PT
-    }
+      <div class="hdr">
+        <div class="title">V2 Score ${x.score}</div>
+        <div class="pair">— ${x.tokenSymbol} / ${x.quoteSymbol}</div>
+      </div>
 
-    tickClocks();
-    setInterval(tickClocks, 1000);
-    // ====================================
+      <div class="badges">
+        <div class="pill stage">${stage}</div>
+        <div class="pill conf">Confidence: ${conf}</div>
+        <div class="pill action">Action: ${action}</div>
+      </div>
 
-    // ===== Time format: ET | MT | PT | UTC =====
-    function pad2(n) { return String(n).padStart(2, "0"); }
+      <div class="meta">
+        age: ${x.ageMin?.toFixed?.(1)} min |
+        liq: ${x.liquidityUsd} |
+        fdv: ${x.fdv} |
+        vol24: ${x.volume24h}
+      </div>
 
-    function formatUTC(iso) {
-      if (!iso) return "";
-      const d = new Date(iso);
-      const y = d.getUTCFullYear();
-      const mo = pad2(d.getUTCMonth() + 1);
-      const da = pad2(d.getUTCDate());
-      const hh = pad2(d.getUTCHours());
-      const mm = pad2(d.getUTCMinutes());
-      const ss = pad2(d.getUTCSeconds());
-      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} UTC`;
-    }
+      <div class="section">
+        <div class="section-title">Base (${baseSum>=0?'+':''}${baseSum})</div>
+        ${renderReasonList(g.base)}
+      </div>
 
-    function formatInTZ(iso, tz, label) {
-      if (!iso) return "";
-      const d = new Date(iso);
+      <div class="section">
+        <div class="section-title">Momentum (${momSum>=0?'+':''}${momSum})</div>
+        ${renderReasonList(g.momentum)}
+      </div>
 
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false
-      }).formatToParts(d);
+      <div class="section">
+        <div class="section-title">Risk (${riskSum>=0?'+':''}${riskSum})</div>
+        ${renderReasonList(g.risk)}
+      </div>
 
-      const get = (type) => parts.find(p => p.type === type)?.value || "";
-      const y = get("year");
-      const mo = get("month");
-      const da = get("day");
-      const hh = get("hour");
-      const mm = get("minute");
-      const ss = get("second");
+      <div style="margin-top:8px;">
+        <a href="${x.url}" target="_blank">Open DexScreener</a>
+      </div>
 
-      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} ${label}`;
-    }
+    </div>
+    `;
+  }).join("");
+}
 
-    function formatTimeZones(iso) {
-      const et  = formatInTZ(iso, "America/New_York", "ET");
-      const mt  = formatInTZ(iso, "America/Denver", "MT");
-      const pt  = formatInTZ(iso, "America/Los_Angeles", "PT");
-      const utc = formatUTC(iso);
-      return `${et} | ${mt} | ${pt} | ${utc}`;
-    }
-    // =====================================
+clearBtn.onclick=()=>{items=[];render();};
+minScoreEl.oninput=render;
+kwEl.oninput=render;
 
-    // ===== Sound alerts (Web Audio API) =====
-    let audioUnlocked = false;
-    let audioCtx = null;
+// initial
+fetch("/api/signals")
+.then(r=>r.json())
+.then(data=>{
+  items=data.signals||[];
+  render();
+});
 
-    function unlockAudio() {
-      if (audioUnlocked) return;
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new Ctx();
-      audioCtx.resume?.();
-      audioUnlocked = true;
-      console.log("Audio unlocked");
-    }
-
-    window.addEventListener("click", unlockAudio, { once: true });
-
-    function beepOnce() {
-      if (!audioUnlocked || !audioCtx) return;
-
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-
-      osc.type = "square";
-      osc.frequency.value = 880;
-
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      const t = audioCtx.currentTime;
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-
-      osc.start(t);
-      osc.stop(t + 0.21);
-    }
-
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-    async function beepTimes(n) {
-      for (let i = 0; i < n; i++) {
-        beepOnce();
-        await sleep(220);
-      }
-    }
-
-    function scoreToBeeps(score, threshold) {
-      const s = Number(score);
-      const t = Number(threshold);
-      if (!Number.isFinite(s) || !Number.isFinite(t)) return 0;
-      if (s < t) return 0;
-      return Math.min(5, 1 + (s - t));
-    }
-
-    function tryBeep(score) {
-      const threshold = Number(alertScoreEl.value || 0);
-      const enabled = soundOnEl.checked;
-
-      if (!enabled) return;
-      if (!audioUnlocked) return;
-
-      const n = scoreToBeeps(score, threshold);
-      if (n <= 0) return;
-
-      beepTimes(n);
-    }
-    // ======================================
-
-    function parseReasonItem(r) {
-      const s = String(r);
-      const m = s.match(/\(([-+]\d+)\)/);
-      const pts = m ? Number(m[1]) : 0;
-      const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
-      return { raw: s, pts, text };
-    }
-
-    function groupReasons(reasons) {
-      const base = [];
-      const momentum = [];
-      const risk = [];
-
-      for (const r of (reasons || [])) {
-        const item = parseReasonItem(r);
-
-        if (item.pts < 0 || /\(-\d+\)/.test(String(r))) {
-          risk.push(item);
-          continue;
-        }
-        if (/^(liq\+|px\+)/i.test(item.text)) {
-          momentum.push(item);
-          continue;
-        }
-        base.push(item);
-      }
-
-      base.sort((a, b) => b.pts - a.pts);
-      momentum.sort((a, b) => b.pts - a.pts);
-      risk.sort((a, b) => a.pts - b.pts);
-
-      return { base, momentum, risk };
-    }
-
-    function renderReasonList(items) {
-      if (!items.length) return `<div class="muted">(none)</div>`;
-      return `
-        <ul class="reasons">
-          ${items.map(it => `
-            <li>
-              <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
-              <span class="rtext">${it.text}</span>
-            </li>
-          `).join("")}
-        </ul>
-      `;
-    }
-
-    function sumPts(items) {
-      return (items || []).reduce((acc, it) => acc + (Number(it.pts) || 0), 0);
-    }
-
-    function render() {
-      const minScore = Number(minScoreEl.value || 0);
-      const kw = (kwEl.value || "").toLowerCase().trim();
-
-      const filtered = items.filter(x => {
-        if (!x || typeof x !== "object" || !x.tokenSymbol) return false;
-        if (x.score < minScore) return false;
-        if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
-
-        if (x.ageMin == null) return false;
-        if (Number(x.ageMin) > AGE_MAX) return false;
-
-        return true;
-      });
-
-      list.innerHTML = filtered.map(x => {
-        const g = groupReasons(x.reasons || []);
-        const baseSum = sumPts(g.base);
-        const momSum  = sumPts(g.momentum);
-        const riskSum = sumPts(g.risk);
-
-        return `
-          <div class="card">
-            <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
-            <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
-            <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
-
-            <div class="muted">
-              <div class="group">
-                <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
-                ${renderReasonList(g.base)}
-              </div>
-              <div class="group">
-                <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
-                ${renderReasonList(g.momentum)}
-              </div>
-              <div class="group">
-                <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
-                ${renderReasonList(g.risk)}
-              </div>
-            </div>
-
-            <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    clearBtn.onclick = () => { items = []; render(); };
-
-    async function loadInitial() {
-      const res = await fetch("/api/signals");
-      const data = await res.json();
-      items = data.signals || [];
-      render();
-    }
-
-    loadInitial();
-
-    const es = new EventSource("/events");
-    es.onopen = () => statusEl.textContent = "✅ Connected (live)";
-    es.onerror = () => statusEl.textContent = "⚠️ Disconnected, retrying…";
-    es.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
-
-      items.unshift(msg);
-      items = items.slice(0, 200);
-      render();
-
-      tryBeep(msg.score);
-    };
-
-    minScoreEl.oninput = render;
-    kwEl.oninput = render;
-  </script>
+// live stream
+const es=new EventSource("/events");
+es.onopen=()=>document.getElementById("status").textContent="✅ Connected";
+es.onmessage=(ev)=>{
+  const msg=JSON.parse(ev.data);
+  items.unshift(msg);
+  items=items.slice(0,200);
+  render();
+};
+</script>
 </body>
 </html>

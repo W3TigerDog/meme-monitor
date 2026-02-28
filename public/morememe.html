@@ -5,45 +5,91 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Meme Monitor Dashboard</title>
 
+
+
+
 <style>
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin:16px; background:#fafafa; }
 .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 input { padding:8px; }
-.card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
-.muted { color:#666; font-size:12px; }
-.score { font-weight:700; }
 a { word-break: break-all; }
 
-.group { margin-top:8px; padding-top:8px; border-top:1px dashed #e5e5e5; }
-.gtitle { font-size:12px; font-weight:800; margin-bottom:6px; }
-.reasons { margin:0; padding-left:16px; }
-.reasons li { margin:4px 0; display:flex; gap:8px; }
-.pts { font-weight:800; min-width:34px; }
-.pts.pos { color:#0a7; }
-.pts.neg { color:#d33; }
-
-.toggle { display:flex; align-items:center; gap:6px; }
-.small { width:70px; }
-
-.clockbar {
-  margin:10px 0 14px;
-  padding:10px 12px;
-  border:1px solid #eee;
-  border-radius:10px;
-  background:#fafafa;
-  display:flex;
-  gap:14px;
-}
-.clk {
-  display:flex;
-  gap:8px;
-  padding:6px 10px;
-  border:1px dashed #ddd;
-  border-radius:10px;
+.card{
+  border:1px solid #e5e5e5;
+  border-radius:14px;
+  padding:16px;
+  margin:14px 0;
   background:#fff;
 }
-.clk .label { font-weight:800; }
-.clk .time { font-variant-numeric: tabular-nums; }
+
+.hdr{
+  display:flex;
+  gap:10px;
+  align-items:baseline;
+  flex-wrap:wrap;
+}
+.hdr .title{
+  font-weight:900;
+  font-size:16px;
+}
+.hdr .pair{
+  font-weight:800;
+}
+
+.badges{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:10px 0;
+}
+.pill{
+  padding:5px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  border:1px solid #eee;
+  background:#fafafa;
+}
+.pill.stage{ background:#fff5f5; border-color:#ffd7d7; }
+.pill.conf{ background:#fff9e6; border-color:#ffe7a3; }
+.pill.action{ background:#f0f7ff; border-color:#cfe4ff; }
+
+.meta{
+  font-size:12px;
+  color:#666;
+  margin-bottom:8px;
+}
+
+.section{
+  margin-top:10px;
+  padding-top:8px;
+  border-top:1px dashed #e5e5e5;
+}
+
+.section-title{
+  font-size:12px;
+  font-weight:900;
+  margin-bottom:6px;
+}
+
+.reasons{
+  margin:0;
+  padding-left:16px;
+}
+.reasons li{
+  margin:4px 0;
+  display:flex;
+  gap:8px;
+}
+.pts{
+  font-weight:900;
+  width:36px;
+}
+.pos{ color:#0a7; }
+.neg{ color:#d33; }
+.zero{ color:#999; }
+
+.small { width:80px; }
 </style>
 </head>
 
@@ -51,306 +97,154 @@ a { word-break: break-all; }
 
 <h2>🚀 Meme Monitor Dashboard</h2>
 
-<!-- Live Clocks -->
-<div class="clockbar">
-  <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
-  <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
-  <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
-</div>
-
 <div class="row">
-  <label>Min Score:
-    <input id="minScore" type="number" value="3" min="0" max="10">
-  </label>
-
-  <label>Keyword:
-    <input id="kw" placeholder="e.g. dog, pepe">
-  </label>
-
-  <label>Alert Score ≥
-    <input id="alertScore" class="small" type="number" value="5" min="0" max="10">
-  </label>
-
-  <label class="toggle">
-    <input id="soundOn" type="checkbox" checked>
-    Sound Alert
-  </label>
-
-  <button id="clear">Clear</button>
-  <span class="muted" id="status">Connecting...</span>
-</div>
-
-<div class="muted" style="margin-top:6px;">
-Click anywhere once to enable sound alerts.
+<label>Min Score: <input id="minScore" type="number" value="3"></label>
+<label>Keyword: <input id="kw"></label>
+<button id="clear">Clear</button>
+<span id="status">Connecting…</span>
 </div>
 
 <div id="list"></div>
 
 <script>
-
-/* -------------------- GLOBAL -------------------- */
-
 const list = document.getElementById("list");
 const minScoreEl = document.getElementById("minScore");
 const kwEl = document.getElementById("kw");
-const statusEl = document.getElementById("status");
 const clearBtn = document.getElementById("clear");
-const alertScoreEl = document.getElementById("alertScore");
-const soundOnEl = document.getElementById("soundOn");
 
 let items = [];
 
-/* -------------------- LIVE CLOCKS -------------------- */
-
-function nowInTZ(tz) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(new Date());
-}
-
-function tickClocks() {
-  document.getElementById("clockET").textContent = nowInTZ("America/New_York");
-  document.getElementById("clockMT").textContent = nowInTZ("America/Phoenix");
-  document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
-}
-
-tickClocks();
-setInterval(tickClocks, 1000);
-
-/* -------------------- TIME FORMAT -------------------- */
-
-function pad2(n){ return String(n).padStart(2,"0"); }
-
-function formatUTC(iso){
-  const d = new Date(iso);
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
-}
-
-function formatInTZ(iso, tz, label){
-  const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-CA",{
-    timeZone:tz,
-    year:"numeric",
-    month:"2-digit",
-    day:"2-digit",
-    hour:"2-digit",
-    minute:"2-digit",
-    second:"2-digit",
-    hour12:false
-  }).formatToParts(d);
-
-  const get = t => parts.find(p=>p.type===t)?.value || "";
-  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
-}
-
-function formatTimeZones(iso){
-  return [
-    formatInTZ(iso,"America/New_York","ET"),
-    formatInTZ(iso,"America/Phoenix","MT"),
-    formatInTZ(iso,"America/Los_Angeles","PT"),
-    formatUTC(iso)
-  ].join(" | ");
-}
-
-/* -------------------- SOUND -------------------- */
-
-let audioUnlocked=false;
-let audioCtx=null;
-
-window.addEventListener("click",()=>{
-  if(audioUnlocked) return;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  audioCtx=new Ctx();
-  audioCtx.resume();
-  audioUnlocked=true;
-},{once:true});
-
-function beepOnce(){
-  if(!audioUnlocked || !audioCtx) return;
-  const osc=audioCtx.createOscillator();
-  const gain=audioCtx.createGain();
-  osc.type="square";
-  osc.frequency.value=880;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  const t=audioCtx.currentTime;
-  gain.gain.setValueAtTime(0.001,t);
-  gain.gain.exponentialRampToValueAtTime(0.3,t+0.01);
-  gain.gain.exponentialRampToValueAtTime(0.001,t+0.2);
-  osc.start(t);
-  osc.stop(t+0.21);
-}
-
-async function beepTimes(n){
-  for(let i=0;i<n;i++){
-    beepOnce();
-    await new Promise(r=>setTimeout(r,220));
-  }
-}
-
-function tryBeep(score){
-  if(!soundOnEl.checked) return;
-  const threshold=Number(alertScoreEl.value||0);
-  if(score<threshold) return;
-  const n=Math.min(5,1+(score-threshold));
-  beepTimes(n);
-}
-
-/* -------------------- SCORE DETAILS -------------------- */
-
 function parseReasonItem(r){
-  const s = String(r ?? "");
-  const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
+  const s = String(r);
+  const m = s.match(/\(([-+]?\\d+)\\)/);
   const pts = m ? Number(m[1]) : 0;
-  const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+  const text = s.replace(/\s*\\(([-+]?\\d+)\\)\s*/g,"").trim();
   return { pts, text };
 }
 
 function groupReasons(reasons){
-  const base = [];
-  const momentum = [];
-  const risk = [];
-
-  for(const r of (reasons || [])){
-    const item = parseReasonItem(r);
-
-    // Negative points -> Risk
-    if(item.pts < 0){
-      risk.push(item);
-      continue;
-    }
-
-    // Momentum tags: liq+ / px+
-    if(/^(liq\+|px\+)/i.test(item.text)){
-      momentum.push(item);
-      continue;
-    }
-
-    base.push(item);
+  const base=[], momentum=[], risk=[];
+  for(const r of (reasons||[])){
+    const item=parseReasonItem(r);
+    if(item.pts<0) risk.push(item);
+    else if(/^liq\\+|^px\\+/i.test(item.text)) momentum.push(item);
+    else base.push(item);
   }
-
-  base.sort((a,b)=>b.pts-a.pts);
-  momentum.sort((a,b)=>b.pts-a.pts);
-  risk.sort((a,b)=>a.pts-b.pts);
-
   return { base, momentum, risk };
 }
 
-function sumPts(arr){
-  return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
-}
-
 function renderReasonList(arr){
-  if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
+  if(!arr.length) return `<div class="meta">(none)</div>`;
   return `
-    <ul class="reasons">
-      ${arr.map(it => `
-        <li>
-          <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
-          <span>${it.text}</span>
-        </li>
-      `).join("")}
-    </ul>
-  `;
+  <ul class="reasons">
+  ${arr.map(r=>`
+    <li>
+      <span class="pts ${r.pts>0?'pos':r.pts<0?'neg':'zero'}">
+        ${r.pts>0?'+':''}${r.pts}
+      </span>
+      <span>${r.text}</span>
+    </li>
+  `).join("")}
+  </ul>`;
 }
 
-/* -------------------- RENDER -------------------- */
+function sumPts(arr){
+  return arr.reduce((a,b)=>a+b.pts,0);
+}
+
+function stageFromAge(age){
+  if(age<5) return "Stage 1 — Launch";
+  if(age<15) return "Stage 2 — Early";
+  if(age<30) return "Stage 3 — Expansion";
+  return "Stage 4 — Decay";
+}
 
 function render(){
   const minScore=Number(minScoreEl.value||0);
-  const kw=(kwEl.value||"").toLowerCase().trim();
+  const kw=(kwEl.value||"").toLowerCase();
 
   const filtered=items.filter(x=>{
     if(x.score<minScore) return false;
-    if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
+    if(kw && !x.tokenSymbol.toLowerCase().includes(kw)) return false;
     return true;
   });
 
   list.innerHTML=filtered.map(x=>{
-    const g = groupReasons(x.reasons || []);
-    const baseSum = sumPts(g.base);
-    const momSum  = sumPts(g.momentum);
-    const riskSum = sumPts(g.risk);
+    const g=groupReasons(x.reasons||[]);
+    const baseSum=sumPts(g.base);
+    const momSum=sumPts(g.momentum);
+    const riskSum=sumPts(g.risk);
+
+    const stage=stageFromAge(x.ageMin||0);
+    const conf=x.score>=6?"High":x.score>=4?"Medium":"Low";
+    const action=x.score>=6?"Watch":x.score>=4?"Caution":"Avoid";
 
     return `
-      <div class="card">
-        <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}</div>
-        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
-        <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+    <div class="card">
 
-        <div class="group">
-          <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
-          ${renderReasonList(g.base)}
-        </div>
-
-        <div class="group">
-          <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
-          ${renderReasonList(g.momentum)}
-        </div>
-
-        <div class="group">
-          <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
-          ${renderReasonList(g.risk)}
-        </div>
-
-        <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+      <div class="hdr">
+        <div class="title">V2 Score ${x.score}</div>
+        <div class="pair">— ${x.tokenSymbol} / ${x.quoteSymbol}</div>
       </div>
+
+      <div class="badges">
+        <div class="pill stage">${stage}</div>
+        <div class="pill conf">Confidence: ${conf}</div>
+        <div class="pill action">Action: ${action}</div>
+      </div>
+
+      <div class="meta">
+        age: ${x.ageMin?.toFixed?.(1)} min |
+        liq: ${x.liquidityUsd} |
+        fdv: ${x.fdv} |
+        vol24: ${x.volume24h}
+      </div>
+
+      <div class="section">
+        <div class="section-title">Base (${baseSum>=0?'+':''}${baseSum})</div>
+        ${renderReasonList(g.base)}
+      </div>
+
+      <div class="section">
+        <div class="section-title">Momentum (${momSum>=0?'+':''}${momSum})</div>
+        ${renderReasonList(g.momentum)}
+      </div>
+
+      <div class="section">
+        <div class="section-title">Risk (${riskSum>=0?'+':''}${riskSum})</div>
+        ${renderReasonList(g.risk)}
+      </div>
+
+      <div style="margin-top:8px;">
+        <a href="${x.url}" target="_blank">Open DexScreener</a>
+      </div>
+
+    </div>
     `;
   }).join("");
 }
 
-clearBtn.onclick=()=>{ items=[]; render(); };
+clearBtn.onclick=()=>{items=[];render();};
 minScoreEl.oninput=render;
 kwEl.oninput=render;
 
-/* -------------------- API -------------------- */
-
-async function loadInitial(){
-  const res=await fetch("/api/signals");
-  const data=await res.json();
+// initial
+fetch("/api/signals")
+.then(r=>r.json())
+.then(data=>{
   items=data.signals||[];
   render();
-}
+});
 
-loadInitial();
-
+// live stream
 const es=new EventSource("/events");
-
-es.onopen=()=>statusEl.textContent="Connected (Live)";
-es.onerror=()=>statusEl.textContent="Reconnecting...";
-
+es.onopen=()=>document.getElementById("status").textContent="✅ Connected";
 es.onmessage=(ev)=>{
   const msg=JSON.parse(ev.data);
-  if(!msg?.tokenSymbol) return;
   items.unshift(msg);
   items=items.slice(0,200);
   render();
-  tryBeep(msg.score);
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 </script>
 </body>
 </html>
