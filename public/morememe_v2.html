@@ -277,7 +277,6 @@ function toNum(x){
   if(typeof x === "number") return Number.isFinite(x) ? x : null;
   const s = String(x).trim();
   if(!s) return null;
-  // remove commas, $ and non-numeric (keep dot and minus)
   const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
@@ -285,12 +284,11 @@ function toNum(x){
 
 function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
 
-// Try to extract useful signals from the backend "reasons" text.
-// This makes v2 work even if your API doesn't explicitly send buys/sells/makers/px changes.
+// Extract useful signals from backend "reasons" text if API doesn't send them explicitly.
 function extractFromReasons(reasons){
   const out = {
-    liqPct3m: null,   // e.g. 136 (from "liq+136%/3m")
-    pxPct1m: null,    // e.g. 27 (from "px+27%/1m")
+    liqPct3m: null,   // "liq+136%/3m"
+    pxPct1m: null,    // "px+27%/1m"
     pxPct5m: null,
     buys5m_ge_sells5m: false,
     buys5m_le_sells5m: false,
@@ -299,15 +297,12 @@ function extractFromReasons(reasons){
   for(const r of (reasons || [])){
     const { text } = parseReasonItem(r);
 
-    // liq+136%/3m
     let m = text.match(/^liq\+(\d+(?:\.\d+)?)%\s*\/\s*3m/i);
     if(m) out.liqPct3m = Number(m[1]);
 
-    // px+27%/1m
     m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*1m/i);
     if(m) out.pxPct1m = Number(m[1]);
 
-    // px+??%/5m (if you ever add it)
     m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*5m/i);
     if(m) out.pxPct5m = Number(m[1]);
 
@@ -321,10 +316,10 @@ function extractFromReasons(reasons){
 /* -------------------- V2 SCORING -------------------- */
 /*
   v2: 0–10 points (5 modules x 0–2)
-  Output: {v2Score, stage, tags[], action, v2Reasons[]}
+  + Tags (no points): Illiquid Microcap, FOMO Spike, High Turnover (NEW)
+  + Confidence: Low/Medium/High (NEW)
 */
 function scoreV2(msg){
-  const reasons = [];
   const tags = [];
 
   const ageMin = toNum(msg.ageMin);
@@ -338,162 +333,155 @@ function scoreV2(msg){
   const buyVol = toNum(msg.buyVolume) ?? null;
   const sellVol= toNum(msg.sellVolume) ?? null;
 
-  // if missing, infer from text reasons
   const rx = extractFromReasons(msg.reasons || []);
   const px1m = rx.pxPct1m;
   const px5m = rx.pxPct5m;
 
+  // ---- Tags (NEW): High Turnover ----
+  let turnover = null;
+  if(liqUsd !== null && liqUsd > 0 && vol24 !== null){
+    turnover = vol24 / liqUsd;
+    if(turnover > 15){
+      tags.push("High Turnover");
+    }
+  }
+
   // --- Hard Filter (Stage 0) ---
   if(liqUsd !== null && liqUsd < 5000){
     tags.push("Illiquid Microcap");
-    reasons.push("Liquidity < $5k (0)");
   }
 
   // Module A: Liquidity Quality (0–2)
   let A = 0;
   if(liqUsd !== null){
-    if(liqUsd >= 25000){ A = 2; reasons.push("liq ≥ $25k (+2)"); }
-    else if(liqUsd >= 10000){ A = 1; reasons.push("liq $10k–$25k (+1)"); }
-    else { A = 0; reasons.push("liq < $10k (0)"); }
-  } else {
-    reasons.push("liq unknown (0)");
+    if(liqUsd >= 25000){ A = 2; }
+    else if(liqUsd >= 10000){ A = 1; }
+    else { A = 0; }
   }
 
   // Module B: Participation / 分散度 (0–2)
-  // Prefer makers if provided; otherwise use a weak proxy from vol24 (better than nothing).
   let B = 0;
   if(makers !== null){
-    if(makers >= 300){ B = 2; reasons.push("makers ≥ 300 (+2)"); }
-    else if(makers >= 80){ B = 1; reasons.push("makers 80–299 (+1)"); }
-    else { B = 0; reasons.push("makers < 80 (0)"); }
+    if(makers >= 300){ B = 2; }
+    else if(makers >= 80){ B = 1; }
+    else { B = 0; }
   } else {
-    // Proxy: vol24 very low -> likely not enough participation
-    if(vol24 !== null && vol24 >= 50000){ B = 1; reasons.push("proxy: vol24 high → participation (+1)"); }
-    else { B = 0; reasons.push("makers unknown (0)"); }
+    if(vol24 !== null && vol24 >= 50000){ B = 1; }
+    else { B = 0; }
   }
 
   // Module C: Orderflow / 买卖结构 (0–2)
   let C = 0;
   if(buys !== null && sells !== null && sells > 0){
     const ratio = buys / sells;
-    if(ratio >= 1.5 && (buyVol === null || sellVol === null || buyVol > sellVol)){
-      C = 2; reasons.push("buys/sells ≥ 1.5 & buyVol>sellVol (+2)");
-    } else if(ratio >= 1.1){
-      C = 1; reasons.push("buys/sells 1.1–1.5 (+1)");
-    } else {
-      C = 0; reasons.push("buys/sells ≤ 1.1 (0)");
-    }
+    if(ratio >= 1.5 && (buyVol === null || sellVol === null || buyVol > sellVol)) C = 2;
+    else if(ratio >= 1.1) C = 1;
+    else C = 0;
   } else if(rx.buys5m_ge_sells5m){
-    C = 1; reasons.push("buys5m ≥ sells5m (+1)");
+    C = 1;
   } else if(rx.buys5m_le_sells5m){
-    C = 0; reasons.push("buys5m ≤ sells5m (0)");
-  } else {
-    reasons.push("orderflow unknown (0)");
+    C = 0;
   }
 
   // Module D: Volume Energy / 交易能量 (0–2)
-  // If you later add vol5m/vol15m fields, this will automatically use them.
   const vol5m = toNum(msg.volume5m) ?? null;
   const vol15m = toNum(msg.volume15m) ?? null;
 
   let D = 0;
   if(vol5m !== null){
-    if(vol5m >= 50000){ D = 2; reasons.push("vol5m ≥ $50k (+2)"); }
-    else if(vol5m >= 15000){ D = 1; reasons.push("vol5m $15k–$50k (+1)"); }
-    else { D = 0; reasons.push("vol5m < $15k (0)"); }
+    if(vol5m >= 50000) D = 2;
+    else if(vol5m >= 15000) D = 1;
+    else D = 0;
   } else if(vol15m !== null){
-    if(vol15m >= 120000){ D = 2; reasons.push("vol15m ≥ $120k (+2)"); }
-    else if(vol15m >= 40000){ D = 1; reasons.push("vol15m $40k–$120k (+1)"); }
-    else { D = 0; reasons.push("vol15m low (0)"); }
+    if(vol15m >= 120000) D = 2;
+    else if(vol15m >= 40000) D = 1;
+    else D = 0;
   } else if(vol24 !== null){
-    // rough fallback for your current schema
-    if(vol24 >= 200000){ D = 2; reasons.push("proxy: vol24 very high (+2)"); }
-    else if(vol24 >= 50000){ D = 1; reasons.push("proxy: vol24 high (+1)"); }
-    else { D = 0; reasons.push("proxy: vol24 low (0)"); }
-  } else {
-    reasons.push("volume unknown (0)");
+    if(vol24 >= 200000) D = 2;
+    else if(vol24 >= 50000) D = 1;
+    else D = 0;
   }
 
-  // Module E: Price Structure / 价格结构 (0–2) + Tags
+  // Module E: Price Structure / 价格结构 (0–2) + Tag FOMO Spike
   let E = 0;
-
-  // FOMO Spike tag logic
   const fomoSpike = (px1m !== null && px1m > 25) || (px5m !== null && px5m > 60);
   if(fomoSpike){
     tags.push("FOMO Spike");
     E = 0;
-    if(px1m !== null) reasons.push(`px+${px1m}%/1m (FOMO, 0)`);
-    else reasons.push("price spike (FOMO, 0)");
   } else {
-    // Good zone: +5% to +25% (prefer)
     const pxRef = (px5m !== null ? px5m : px1m);
-    if(pxRef === null){
-      E = 1; // neutral if we can't see px change
-      reasons.push("px change unknown (+1)");
-    } else if(pxRef >= 5 && pxRef <= 25){
-      E = 2; reasons.push("px in +5%~+25% zone (+2)");
-    } else if(pxRef > 25 && pxRef <= 60){
-      E = 1; reasons.push("px overheat +25%~+60% (+1)");
-    } else {
-      E = 1; reasons.push("px neutral (+1)");
-    }
+    if(pxRef === null) E = 1;
+    else if(pxRef >= 5 && pxRef <= 25) E = 2;
+    else if(pxRef > 25 && pxRef <= 60) E = 1;
+    else E = 1;
   }
 
   // Total score 0–10
   let v2Score = clamp(A + B + C + D + E, 0, 10);
 
-  // Stage decision
-  let stage = "Unknown";
+  // Confidence (NEW)
+  let confidence = "Low";
+  if(v2Score >= 7) confidence = "High";
+  else if(v2Score >= 5) confidence = "Medium";
+
+  // Stage decision (UPDATED: more precise)
+  let stage = "Watch";
   let action = "Watch";
 
-  // Stage 0 (illiquid) override
   const isIlliquid = (liqUsd !== null && liqUsd < 5000);
   if(isIlliquid){
     stage = "Stage 0 — Illiquid";
     action = "Avoid";
-    // Make sure stage0 doesn't accidentally look "good"
     v2Score = Math.min(v2Score, 2);
-    reasons.unshift("Stage 0 filter: illiquid microcap (-)");
+    confidence = "Low";
   } else {
-    // Otherwise infer by age + score + tags
-    const hasDistTag = tags.includes("Profit Distribution");
+    const hasDistTag = tags.includes("Profit Distribution"); // placeholder if you add it later
+
+    // Stage 1: Launch (<=10m)
     if(ageMin !== null && ageMin <= 10 && v2Score >= 5 && !tags.includes("FOMO Spike")){
       stage = "Stage 1 — Launch";
       action = "Small Entry / Watch Pullback";
-    } else if(ageMin !== null && ageMin <= 60 && v2Score >= 6 && !hasDistTag){
+    }
+    // Stage 2: Expansion (UPDATED)
+    else if(ageMin !== null && ageMin <= 120 && v2Score >= 6 && !hasDistTag){
       stage = "Stage 2 — Expansion";
       action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Pullback / Breakout";
-    } else if(v2Score >= 6 && (tags.includes("FOMO Spike") || hasDistTag || (buys !== null && sells !== null && buys <= sells))){
+    }
+    // Stage 3: Distribution
+    else if(v2Score >= 6 && (tags.includes("FOMO Spike") || hasDistTag || (buys !== null && sells !== null && buys <= sells))){
       stage = "Stage 3 — Distribution";
       action = "Avoid Chasing / Wait Deep Pullback";
-    } else if(v2Score <= 4){
+    }
+    // Stage 4: Decay
+    else if(v2Score <= 4){
       stage = "Stage 4 — Decay";
       action = "Avoid";
-    } else {
+    }
+    else {
       stage = "Watch";
       action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Watch";
+    }
+
+    // If High Turnover, nudge action to be more cautious (NEW)
+    if(tags.includes("High Turnover") && action !== "Avoid"){
+      action = action.includes("Wait") ? action : "Watch (High Turnover)";
     }
   }
 
   // Build v2 reasons with "(+n)" formatting so your existing UI groups them.
-  // Put the module headers into base reasons; momentum stays for liq+/px+ style.
-  // We'll keep it simple: all module explanations as base, and any "liq+.. / px+.." from rx as momentum line items.
   const v2Reasons = [];
-
-  // Module lines
   v2Reasons.push(`Liquidity Quality: ${A}/2 (+${A})`);
   v2Reasons.push(`Participation: ${B}/2 (+${B})`);
   v2Reasons.push(`Orderflow: ${C}/2 (+${C})`);
   v2Reasons.push(`Volume Energy: ${D}/2 (+${D})`);
   v2Reasons.push(`Price Structure: ${E}/2 (+${E})`);
 
-  // Add tag lines (risk-ish but not negative; show as base)
-  if(tags.length){
-    v2Reasons.push(`Tags: ${tags.join(", ")} (+0)`);
-  }
+  // Tags & extra diagnostics (NEW)
+  if(tags.length) v2Reasons.push(`Tags: ${tags.join(", ")} (+0)`);
+  if(turnover !== null) v2Reasons.push(`turnover=vol24/liqUsd=${turnover.toFixed(1)}x (+0)`);
+  v2Reasons.push(`Confidence: ${confidence} (+0)`);
 
-  // Add any original momentum-like raw signals if present in backend reasons (keeps your Momentum group useful)
-  // (these already match your "liq+" / "px+" detection)
+  // Keep original momentum-like signals (liq+/px+) if backend sent them in msg.reasons
   for(const r of (msg.reasons || [])){
     const { text, pts } = parseReasonItem(r);
     if(/^(liq\+|px\+)/i.test(text)){
@@ -501,14 +489,12 @@ function scoreV2(msg){
     }
   }
 
-  // Add a few plain explanations (still parseable)
-  // We append them with (+0) so they show up but don't change totals.
   if(liqUsd !== null) v2Reasons.push(`liqUsd=${liqUsd} (+0)`);
   if(fdv !== null) v2Reasons.push(`fdv=${fdv} (+0)`);
   if(vol24 !== null) v2Reasons.push(`vol24=${vol24} (+0)`);
   if(ageMin !== null) v2Reasons.push(`ageMin=${ageMin.toFixed(1)} (+0)`);
 
-  return { v2Score, stage, tags, action, v2Reasons };
+  return { v2Score, stage, tags, action, v2Reasons, confidence };
 }
 
 /* -------------------- APPLY V2 TO MESSAGES -------------------- */
@@ -521,7 +507,8 @@ function applyV2(msg){
     v2Stage: v2.stage,
     v2Tags: v2.tags,
     v2Action: v2.action,
-    v2Reasons: v2.v2Reasons
+    v2Reasons: v2.v2Reasons,
+    v2Confidence: v2.confidence
   };
 }
 
@@ -533,6 +520,12 @@ function badgeClassForStage(stage){
   if(stage.includes("Stage 3")) return "warn";
   if(stage.includes("Stage 1") || stage.includes("Stage 2")) return "strong";
   return "";
+}
+
+function badgeClassForConfidence(conf){
+  if(conf === "High") return "strong";
+  if(conf === "Medium") return "warn";
+  return "danger";
 }
 
 function render(){
@@ -558,6 +551,7 @@ function render(){
     const stage = x.v2Stage || "Unknown";
     const action = x.v2Action || "Watch";
     const tags = x.v2Tags || [];
+    const conf = x.v2Confidence || "Low";
 
     return `
       <div class="card">
@@ -568,8 +562,12 @@ function render(){
 
         <div class="badgeRow">
           <span class="badge ${badgeClassForStage(stage)}">${stage}</span>
+          <span class="badge ${badgeClassForConfidence(conf)}">Confidence: ${conf}</span>
           <span class="badge ${action.includes("Avoid") ? "danger" : action.includes("Wait") ? "warn" : "strong"}">Action: ${action}</span>
-          ${tags.map(t => `<span class="badge ${t.includes("FOMO") ? "warn" : t.includes("Illiquid") ? "danger" : "warn"}">${t}</span>`).join("")}
+          ${tags.map(t => {
+            const cls = t.includes("Illiquid") ? "danger" : (t.includes("FOMO") || t.includes("Turnover")) ? "warn" : "warn";
+            return `<span class="badge ${cls}">${t}</span>`;
+          }).join("")}
         </div>
 
         <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
