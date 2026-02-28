@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Meme Monitor Dashboard</title>
+
+<style>
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+input { padding:8px; }
+.card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
+.muted { color:#666; font-size:12px; }
+.score { font-weight:700; }
+a { word-break: break-all; }
+
+.group { margin-top:8px; padding-top:8px; border-top:1px dashed #e5e5e5; }
+.gtitle { font-size:12px; font-weight:800; margin-bottom:6px; }
+.reasons { margin:0; padding-left:16px; }
+.reasons li { margin:4px 0; display:flex; gap:8px; }
+.pts { font-weight:800; min-width:34px; }
+.pts.pos { color:#0a7; }
+.pts.neg { color:#d33; }
+
+.toggle { display:flex; align-items:center; gap:6px; }
+.small { width:70px; }
+
+.clockbar {
+  margin:10px 0 14px;
+  padding:10px 12px;
+  border:1px solid #eee;
+  border-radius:10px;
+  background:#fafafa;
+  display:flex;
+  gap:14px;
+}
+.clk {
+  display:flex;
+  gap:8px;
+  padding:6px 10px;
+  border:1px dashed #ddd;
+  border-radius:10px;
+  background:#fff;
+}
+.clk .label { font-weight:800; }
+.clk .time { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+
+<body>
+
+<h2>🚀 Meme Monitor Dashboard</h2>
+
+<!-- Live Clocks -->
+<div class="clockbar">
+  <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
+  <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
+  <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
+</div>
+
+<div class="row">
+  <label>Min Score:
+    <input id="minScore" type="number" value="3" min="0" max="10">
+  </label>
+
+  <label>Keyword:
+    <input id="kw" placeholder="e.g. dog, pepe">
+  </label>
+
+  <label>Alert Score ≥
+    <input id="alertScore" class="small" type="number" value="5" min="0" max="10">
+  </label>
+
+  <label class="toggle">
+    <input id="soundOn" type="checkbox" checked>
+    Sound Alert
+  </label>
+
+  <button id="clear">Clear</button>
+  <span class="muted" id="status">Connecting...</span>
+</div>
+
+<div class="muted" style="margin-top:6px;">
+Click anywhere once to enable sound alerts.
+</div>
+
+<div id="list"></div>
+
+<script>
+
+/* -------------------- GLOBAL -------------------- */
+
+const list = document.getElementById("list");
+const minScoreEl = document.getElementById("minScore");
+const kwEl = document.getElementById("kw");
+const statusEl = document.getElementById("status");
+const clearBtn = document.getElementById("clear");
+const alertScoreEl = document.getElementById("alertScore");
+const soundOnEl = document.getElementById("soundOn");
+
+let items = [];
+
+/* -------------------- LIVE CLOCKS -------------------- */
+
+function nowInTZ(tz) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date());
+}
+
+function tickClocks() {
+  document.getElementById("clockET").textContent = nowInTZ("America/New_York");
+  document.getElementById("clockMT").textContent = nowInTZ("America/Phoenix");
+  document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
+}
+
+tickClocks();
+setInterval(tickClocks, 1000);
+
+/* -------------------- TIME FORMAT -------------------- */
+
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function formatUTC(iso){
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
+}
+
+function formatInTZ(iso, tz, label){
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-CA",{
+    timeZone:tz,
+    year:"numeric",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit",
+    hour12:false
+  }).formatToParts(d);
+
+  const get = t => parts.find(p=>p.type===t)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
+}
+
+function formatTimeZones(iso){
+  return [
+    formatInTZ(iso,"America/New_York","ET"),
+    formatInTZ(iso,"America/Phoenix","MT"),
+    formatInTZ(iso,"America/Los_Angeles","PT"),
+    formatUTC(iso)
+  ].join(" | ");
+}
+
+/* -------------------- SOUND -------------------- */
+
+let audioUnlocked=false;
+let audioCtx=null;
+
+window.addEventListener("click",()=>{
+  if(audioUnlocked) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  audioCtx=new Ctx();
+  audioCtx.resume();
+  audioUnlocked=true;
+},{once:true});
+
+function beepOnce(){
+  if(!audioUnlocked || !audioCtx) return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.type="square";
+  osc.frequency.value=880;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const t=audioCtx.currentTime;
+  gain.gain.setValueAtTime(0.001,t);
+  gain.gain.exponentialRampToValueAtTime(0.3,t+0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+  osc.start(t);
+  osc.stop(t+0.21);
+}
+
+async function beepTimes(n){
+  for(let i=0;i<n;i++){
+    beepOnce();
+    await new Promise(r=>setTimeout(r,220));
+  }
+}
+
+function tryBeep(score){
+  if(!soundOnEl.checked) return;
+  const threshold=Number(alertScoreEl.value||0);
+  if(score<threshold) return;
+  const n=Math.min(5,1+(score-threshold));
+  beepTimes(n);
+}
+
+/* -------------------- RENDER -------------------- */
+
+function render(){
+  const minScore=Number(minScoreEl.value||0);
+  const kw=(kwEl.value||"").toLowerCase().trim();
+
+  const filtered=items.filter(x=>{
+    if(x.score<minScore) return false;
+    if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
+    return true;
+  });
+
+  list.innerHTML=filtered.map(x=>`
+    <div class="card">
+      <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}</div>
+      <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
+      <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+      <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+    </div>
+  `).join("");
+}
+
+clearBtn.onclick=()=>{ items=[]; render(); };
+minScoreEl.oninput=render;
+kwEl.oninput=render;
+
+/* -------------------- API -------------------- */
+
+async function loadInitial(){
+  const res=await fetch("/api/signals");
+  const data=await res.json();
+  items=data.signals||[];
+  render();
+}
+
+loadInitial();
+
+const es=new EventSource("/events");
+
+es.onopen=()=>statusEl.textContent="Connected (Live)";
+es.onerror=()=>statusEl.textContent="Reconnecting...";
+
+es.onmessage=(ev)=>{
+  const msg=JSON.parse(ev.data);
+  if(!msg?.tokenSymbol) return;
+  items.unshift(msg);
+  items=items.slice(0,200);
+  render();
+  tryBeep(msg.score);
+};
+
+</script>
+</body>
+</html>
