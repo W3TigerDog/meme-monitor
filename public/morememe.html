@@ -200,6 +200,64 @@ function tryBeep(score){
   beepTimes(n);
 }
 
+/* -------------------- SCORE DETAILS -------------------- */
+
+function parseReasonItem(r){
+  const s = String(r ?? "");
+  const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
+  const pts = m ? Number(m[1]) : 0;
+  const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+  return { pts, text };
+}
+
+function groupReasons(reasons){
+  const base = [];
+  const momentum = [];
+  const risk = [];
+
+  for(const r of (reasons || [])){
+    const item = parseReasonItem(r);
+
+    // Negative points -> Risk
+    if(item.pts < 0){
+      risk.push(item);
+      continue;
+    }
+
+    // Momentum tags: liq+ / px+
+    if(/^(liq\+|px\+)/i.test(item.text)){
+      momentum.push(item);
+      continue;
+    }
+
+    base.push(item);
+  }
+
+  base.sort((a,b)=>b.pts-a.pts);
+  momentum.sort((a,b)=>b.pts-a.pts);
+  risk.sort((a,b)=>a.pts-b.pts);
+
+  return { base, momentum, risk };
+}
+
+function sumPts(arr){
+  return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
+}
+
+function renderReasonList(arr){
+  if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
+  return `
+    <ul class="reasons">
+      ${arr.map(it => `
+        <li>
+          <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+          <span>${it.text}</span>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
 /* -------------------- RENDER -------------------- */
 
 function render(){
@@ -212,14 +270,37 @@ function render(){
     return true;
   });
 
-  list.innerHTML=filtered.map(x=>`
-    <div class="card">
-      <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}</div>
-      <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
-      <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
-      <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
-    </div>
-  `).join("");
+  list.innerHTML=filtered.map(x=>{
+    const g = groupReasons(x.reasons || []);
+    const baseSum = sumPts(g.base);
+    const momSum  = sumPts(g.momentum);
+    const riskSum = sumPts(g.risk);
+
+    return `
+      <div class="card">
+        <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}</div>
+        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
+        <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+
+        <div class="group">
+          <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
+          ${renderReasonList(g.base)}
+        </div>
+
+        <div class="group">
+          <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
+          ${renderReasonList(g.momentum)}
+        </div>
+
+        <div class="group">
+          <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
+          ${renderReasonList(g.risk)}
+        </div>
+
+        <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+      </div>
+    `;
+  }).join("");
 }
 
 clearBtn.onclick=()=>{ items=[]; render(); };
@@ -250,6 +331,25 @@ es.onmessage=(ev)=>{
   render();
   tryBeep(msg.score);
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 </script>
 </body>
