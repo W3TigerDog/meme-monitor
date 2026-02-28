@@ -1,643 +1,372 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Meme Monitor Dashboard</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meme Monitor Dashboard</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    input { padding:8px; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
+    .muted { color:#666; font-size: 12px; }
+    .score { font-weight:700; }
+    a { word-break: break-all; }
 
-<style>
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
-.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-input { padding:8px; }
-.card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
-.muted { color:#666; font-size:12px; }
-.score { font-weight:800; }
-a { word-break: break-all; }
+    .group { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e5e5; }
+    .gtitle { font-size: 12px; font-weight: 800; color: #333; margin-bottom: 6px; }
+    .reasons { margin: 0; padding-left: 16px; }
+    .reasons li { margin: 4px 0; display: flex; gap: 8px; align-items: baseline; }
+    .pts { font-weight: 800; min-width: 34px; display: inline-block; }
+    .pts.pos { color: #0a7; }
+    .pts.neg { color: #d33; }
+    .rtext { color: #444; }
 
-.group { margin-top:8px; padding-top:8px; border-top:1px dashed #e5e5e5; }
-.gtitle { font-size:12px; font-weight:800; margin-bottom:6px; }
-.reasons { margin:0; padding-left:16px; }
-.reasons li { margin:4px 0; display:flex; gap:8px; }
-.pts { font-weight:800; min-width:34px; }
-.pts.pos { color:#0a7; }
-.pts.neg { color:#d33; }
+    .toggle { display:flex; align-items:center; gap:6px; }
+    .small { width:80px; }
 
-.toggle { display:flex; align-items:center; gap:6px; }
-.small { width:70px; }
-
-.clockbar {
-  margin:10px 0 14px;
-  padding:10px 12px;
-  border:1px solid #eee;
-  border-radius:10px;
-  background:#fafafa;
-  display:flex;
-  gap:14px;
-}
-.clk {
-  display:flex;
-  gap:8px;
-  padding:6px 10px;
-  border:1px dashed #ddd;
-  border-radius:10px;
-  background:#fff;
-}
-.clk .label { font-weight:800; }
-.clk .time { font-variant-numeric: tabular-nums; }
-
-.badgeRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-.badge{
-  font-size:12px;
-  border:1px solid #eee;
-  background:#fafafa;
-  padding:4px 8px;
-  border-radius:999px;
-}
-.badge.strong{ border-color:#bfe7d7; background:#e9fff6; }
-.badge.warn{ border-color:#ffd7a6; background:#fff3e1; }
-.badge.danger{ border-color:#ffb3b3; background:#ffecec; }
-</style>
+    .clockbar{
+      margin: 10px 0 14px;
+      padding: 10px 12px;
+      border: 1px solid #eee;
+      border-radius: 10px;
+      background: #fafafa;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .clk{
+      display:flex;
+      gap:8px;
+      align-items: baseline;
+      padding: 6px 10px;
+      border: 1px dashed #ddd;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .clk .label{ font-weight: 800; }
+    .clk .time{ font-variant-numeric: tabular-nums; }
+  </style>
 </head>
 
 <body>
 
-<h2>🚀 Meme Monitor Dashboard</h2>
+  <h2 id="title" style="color:gold;"></h2>
 
-<!-- Live Clocks -->
-<div class="clockbar">
-  <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
-  <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
-  <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
-</div>
+  <div class="clockbar">
+    <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
+  </div>
 
-<div class="row">
-  <label>Min V2 Score:
-    <input id="minScore" type="number" value="5" min="0" max="10">
-  </label>
+  <div class="row">
+    <label>Min Score: <input id="minScore" type="number" value="3" min="0" max="10"></label>
+    <label>Keyword: <input id="kw" placeholder="e.g. dog, cat, pepe"></label>
 
-  <label>Keyword:
-    <input id="kw" placeholder="e.g. dog, pepe">
-  </label>
+    <label>Alert Score ≥ <input id="alertScore" class="small" type="number" value="5" min="0" max="10"></label>
+    <label class="toggle"><input id="soundOn" type="checkbox" checked>Sound</label>
 
-  <label>Alert V2 Score ≥
-    <input id="alertScore" class="small" type="number" value="7" min="0" max="10">
-  </label>
+    <button id="clear">Clear</button>
+    <span class="muted" id="status">Connecting…</span>
+  </div>
 
-  <!-- NEW: Time Window -->
-  <label>Window (min):
-    <input id="windowMin" class="small" type="number" value="20" min="1" max="240">
-  </label>
+  <div class="muted" style="margin-top:6px;">
+    Tip: Click anywhere once after opening this page to allow the browser to play alert sounds.
+  </div>
 
-  <label class="toggle">
-    <input id="soundOn" type="checkbox" checked>
-    Sound Alert
-  </label>
+  <div id="list"></div>
 
-  <button id="clear">Clear</button>
-  <span class="muted" id="status">Connecting...</span>
-</div>
+  <audio id="beep" preload="auto">
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
+  </audio>
 
-<div class="muted" style="margin-top:6px;">
-Click anywhere once to enable sound alerts.
-</div>
+  <script>
+    const AGE_MAX = 10;
 
-<div id="list"></div>
+    const titleEl = document.getElementById("title");
+    titleEl.textContent = `🚀 New Meme Monitor Dashboard (${AGE_MAX} minutes)`;
 
-<script>
-/* -------------------- GLOBAL -------------------- */
+    const list = document.getElementById("list");
+    const minScoreEl = document.getElementById("minScore");
+    const kwEl = document.getElementById("kw");
+    const statusEl = document.getElementById("status");
+    const clearBtn = document.getElementById("clear");
 
-const list = document.getElementById("list");
-const minScoreEl = document.getElementById("minScore");
-const kwEl = document.getElementById("kw");
-const statusEl = document.getElementById("status");
-const clearBtn = document.getElementById("clear");
-const alertScoreEl = document.getElementById("alertScore");
-const soundOnEl = document.getElementById("soundOn");
-const windowMinEl = document.getElementById("windowMin"); // NEW
+    const alertScoreEl = document.getElementById("alertScore");
+    const soundOnEl = document.getElementById("soundOn");
 
-let items = [];
+    let items = [];
 
-/* -------------------- LIVE CLOCKS -------------------- */
+    // ===== Live clocks: ET / MT / PT =====
+    const clockET = document.getElementById("clockET");
+    const clockMT = document.getElementById("clockMT");
+    const clockPT = document.getElementById("clockPT");
 
-function nowInTZ(tz) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(new Date());
-}
-
-function tickClocks() {
-  document.getElementById("clockET").textContent = nowInTZ("America/New_York");
-  document.getElementById("clockMT").textContent = nowInTZ("America/Phoenix");
-  document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
-}
-
-tickClocks();
-setInterval(tickClocks, 1000);
-
-/* -------------------- TIME FORMAT -------------------- */
-
-function pad2(n){ return String(n).padStart(2,"0"); }
-
-function formatUTC(iso){
-  const d = new Date(iso);
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
-}
-
-function formatInTZ(iso, tz, label){
-  const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-CA",{
-    timeZone:tz,
-    year:"numeric",
-    month:"2-digit",
-    day:"2-digit",
-    hour:"2-digit",
-    minute:"2-digit",
-    second:"2-digit",
-    hour12:false
-  }).formatToParts(d);
-
-  const get = t => parts.find(p=>p.type===t)?.value || "";
-  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
-}
-
-function formatTimeZones(iso){
-  return [
-    formatInTZ(iso,"America/New_York","ET"),
-    formatInTZ(iso,"America/Phoenix","MT"),
-    formatInTZ(iso,"America/Los_Angeles","PT"),
-    formatUTC(iso)
-  ].join(" | ");
-}
-
-/* -------------------- SOUND -------------------- */
-
-let audioUnlocked=false;
-let audioCtx=null;
-
-window.addEventListener("click",()=>{
-  if(audioUnlocked) return;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  audioCtx=new Ctx();
-  audioCtx.resume();
-  audioUnlocked=true;
-},{once:true});
-
-function beepOnce(){
-  if(!audioUnlocked || !audioCtx) return;
-  const osc=audioCtx.createOscillator();
-  const gain=audioCtx.createGain();
-  osc.type="square";
-  osc.frequency.value=880;
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  const t=audioCtx.currentTime;
-  gain.gain.setValueAtTime(0.001,t);
-  gain.gain.exponentialRampToValueAtTime(0.3,t+0.01);
-  gain.gain.exponentialRampToValueAtTime(0.001,t+0.2);
-  osc.start(t);
-  osc.stop(t+0.21);
-}
-
-async function beepTimes(n){
-  for(let i=0;i<n;i++){
-    beepOnce();
-    await new Promise(r=>setTimeout(r,220));
-  }
-}
-
-function tryBeep(v2Score){
-  if(!soundOnEl.checked) return;
-  const threshold=Number(alertScoreEl.value||0);
-  if(v2Score<threshold) return;
-  const n=Math.min(5,1+(v2Score-threshold));
-  beepTimes(n);
-}
-
-/* -------------------- SCORE DETAILS (existing renderer) -------------------- */
-
-function parseReasonItem(r){
-  const s = String(r ?? "");
-  const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
-  const pts = m ? Number(m[1]) : 0;
-  const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
-  return { pts, text };
-}
-
-function groupReasons(reasons){
-  const base = [];
-  const momentum = [];
-  const risk = [];
-
-  for(const r of (reasons || [])){
-    const item = parseReasonItem(r);
-
-    if(item.pts < 0){
-      risk.push(item);
-      continue;
+    function nowInTZ(tz) {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(new Date());
     }
 
-    if(/^(liq\+|px\+)/i.test(item.text)){
-      momentum.push(item);
-      continue;
+    function tickClocks() {
+      clockET.textContent = nowInTZ("America/New_York");        // ET
+      clockMT.textContent = nowInTZ("America/Phoenix");         // MT (Phoenix)
+      clockPT.textContent = nowInTZ("America/Los_Angeles");     // PT
     }
 
-    base.push(item);
-  }
+    tickClocks();
+    setInterval(tickClocks, 1000);
+    // ====================================
 
-  base.sort((a,b)=>b.pts-a.pts);
-  momentum.sort((a,b)=>b.pts-a.pts);
-  risk.sort((a,b)=>a.pts-b.pts);
+    // ===== Time format: ET | MT | PT | UTC =====
+    function pad2(n) { return String(n).padStart(2, "0"); }
 
-  return { base, momentum, risk };
-}
-
-function sumPts(arr){
-  return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
-}
-
-function renderReasonList(arr){
-  if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
-  return `
-    <ul class="reasons">
-      ${arr.map(it => `
-        <li>
-          <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
-          <span>${it.text}</span>
-        </li>
-      `).join("")}
-    </ul>
-  `;
-}
-
-/* -------------------- V2 HELPERS -------------------- */
-
-function toNum(x){
-  if(x === null || x === undefined) return null;
-  if(typeof x === "number") return Number.isFinite(x) ? x : null;
-  const s = String(x).trim();
-  if(!s) return null;
-  const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
-
-function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
-
-function extractFromReasons(reasons){
-  const out = {
-    liqPct3m: null,
-    pxPct1m: null,
-    pxPct5m: null,
-    buys5m_ge_sells5m: false,
-    buys5m_le_sells5m: false,
-  };
-
-  for(const r of (reasons || [])){
-    const { text } = parseReasonItem(r);
-
-    let m = text.match(/^liq\+(\d+(?:\.\d+)?)%\s*\/\s*3m/i);
-    if(m) out.liqPct3m = Number(m[1]);
-
-    m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*1m/i);
-    if(m) out.pxPct1m = Number(m[1]);
-
-    m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*5m/i);
-    if(m) out.pxPct5m = Number(m[1]);
-
-    if(/buys5m\s*>=\s*sells5m/i.test(text)) out.buys5m_ge_sells5m = true;
-    if(/buys5m\s*<=\s*sells5m/i.test(text)) out.buys5m_le_sells5m = true;
-  }
-
-  return out;
-}
-
-/* -------------------- V2 SCORING -------------------- */
-
-function scoreV2(msg){
-  const tags = [];
-
-  const ageMin = toNum(msg.ageMin);
-  const liqUsd = toNum(msg.liquidityUsd);
-  const fdv    = toNum(msg.fdv);
-  const vol24  = toNum(msg.volume24h);
-
-  const makers = toNum(msg.makers) ?? toNum(msg.makerCount) ?? null;
-  const buys   = toNum(msg.buys) ?? toNum(msg.buyTxns) ?? null;
-  const sells  = toNum(msg.sells) ?? toNum(msg.sellTxns) ?? null;
-  const buyVol = toNum(msg.buyVolume) ?? null;
-  const sellVol= toNum(msg.sellVolume) ?? null;
-
-  const rx = extractFromReasons(msg.reasons || []);
-  const px1m = rx.pxPct1m;
-  const px5m = rx.pxPct5m;
-
-  let turnover = null;
-  if(liqUsd !== null && liqUsd > 0 && vol24 !== null){
-    turnover = vol24 / liqUsd;
-    if(turnover > 15){
-      tags.push("High Turnover");
-    }
-  }
-
-  if(liqUsd !== null && liqUsd < 5000){
-    tags.push("Illiquid Microcap");
-  }
-
-  let A = 0;
-  if(liqUsd !== null){
-    if(liqUsd >= 25000){ A = 2; }
-    else if(liqUsd >= 10000){ A = 1; }
-    else { A = 0; }
-  }
-
-  let B = 0;
-  if(makers !== null){
-    if(makers >= 300){ B = 2; }
-    else if(makers >= 80){ B = 1; }
-    else { B = 0; }
-  } else {
-    if(vol24 !== null && vol24 >= 50000){ B = 1; }
-    else { B = 0; }
-  }
-
-  let C = 0;
-  if(buys !== null && sells !== null && sells > 0){
-    const ratio = buys / sells;
-    if(ratio >= 1.5 && (buyVol === null || sellVol === null || buyVol > sellVol)) C = 2;
-    else if(ratio >= 1.1) C = 1;
-    else C = 0;
-  } else if(rx.buys5m_ge_sells5m){
-    C = 1;
-  } else if(rx.buys5m_le_sells5m){
-    C = 0;
-  }
-
-  const vol5m = toNum(msg.volume5m) ?? null;
-  const vol15m = toNum(msg.volume15m) ?? null;
-
-  let D = 0;
-  if(vol5m !== null){
-    if(vol5m >= 50000) D = 2;
-    else if(vol5m >= 15000) D = 1;
-    else D = 0;
-  } else if(vol15m !== null){
-    if(vol15m >= 120000) D = 2;
-    else if(vol15m >= 40000) D = 1;
-    else D = 0;
-  } else if(vol24 !== null){
-    if(vol24 >= 200000) D = 2;
-    else if(vol24 >= 50000) D = 1;
-    else D = 0;
-  }
-
-  let E = 0;
-  const fomoSpike = (px1m !== null && px1m > 25) || (px5m !== null && px5m > 60);
-  if(fomoSpike){
-    tags.push("FOMO Spike");
-    E = 0;
-  } else {
-    const pxRef = (px5m !== null ? px5m : px1m);
-    if(pxRef === null) E = 1;
-    else if(pxRef >= 5 && pxRef <= 25) E = 2;
-    else if(pxRef > 25 && pxRef <= 60) E = 1;
-    else E = 1;
-  }
-
-  let v2Score = clamp(A + B + C + D + E, 0, 10);
-
-  let confidence = "Low";
-  if(v2Score >= 7) confidence = "High";
-  else if(v2Score >= 5) confidence = "Medium";
-
-  let stage = "Watch";
-  let action = "Watch";
-
-  const isIlliquid = (liqUsd !== null && liqUsd < 5000);
-  if(isIlliquid){
-    stage = "Stage 0 — Illiquid";
-    action = "Avoid";
-    v2Score = Math.min(v2Score, 2);
-    confidence = "Low";
-  } else {
-    const hasDistTag = tags.includes("Profit Distribution");
-
-    if(ageMin !== null && ageMin <= 10 && v2Score >= 5 && !tags.includes("FOMO Spike")){
-      stage = "Stage 1 — Launch";
-      action = "Small Entry / Watch Pullback";
-    }
-    else if(ageMin !== null && ageMin <= 120 && v2Score >= 6 && !hasDistTag){
-      stage = "Stage 2 — Expansion";
-      action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Pullback / Breakout";
-    }
-    else if(v2Score >= 6 && (tags.includes("FOMO Spike") || hasDistTag || (buys !== null && sells !== null && buys <= sells))){
-      stage = "Stage 3 — Distribution";
-      action = "Avoid Chasing / Wait Deep Pullback";
-    }
-    else if(v2Score <= 4){
-      stage = "Stage 4 — Decay";
-      action = "Avoid";
-    }
-    else {
-      stage = "Watch";
-      action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Watch";
+    function formatUTC(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      const y = d.getUTCFullYear();
+      const mo = pad2(d.getUTCMonth() + 1);
+      const da = pad2(d.getUTCDate());
+      const hh = pad2(d.getUTCHours());
+      const mm = pad2(d.getUTCMinutes());
+      const ss = pad2(d.getUTCSeconds());
+      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} UTC`;
     }
 
-    if(tags.includes("High Turnover") && action !== "Avoid"){
-      action = action.includes("Wait") ? action : "Watch (High Turnover)";
+    function formatInTZ(iso, tz, label) {
+      if (!iso) return "";
+      const d = new Date(iso);
+
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).formatToParts(d);
+
+      const get = (type) => parts.find(p => p.type === type)?.value || "";
+      const y = get("year");
+      const mo = get("month");
+      const da = get("day");
+      const hh = get("hour");
+      const mm = get("minute");
+      const ss = get("second");
+
+      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} ${label}`;
     }
-  }
 
-  const v2Reasons = [];
-  v2Reasons.push(`Liquidity Quality: ${A}/2 (+${A})`);
-  v2Reasons.push(`Participation: ${B}/2 (+${B})`);
-  v2Reasons.push(`Orderflow: ${C}/2 (+${C})`);
-  v2Reasons.push(`Volume Energy: ${D}/2 (+${D})`);
-  v2Reasons.push(`Price Structure: ${E}/2 (+${E})`);
-
-  if(tags.length) v2Reasons.push(`Tags: ${tags.join(", ")} (+0)`);
-  if(turnover !== null) v2Reasons.push(`turnover=vol24/liqUsd=${turnover.toFixed(1)}x (+0)`);
-  v2Reasons.push(`Confidence: ${confidence} (+0)`);
-
-  for(const r of (msg.reasons || [])){
-    const { text, pts } = parseReasonItem(r);
-    if(/^(liq\+|px\+)/i.test(text)){
-      v2Reasons.push(`${text} (+${Math.max(0, pts)})`);
+    function formatTimeZones(iso) {
+      const et  = formatInTZ(iso, "America/New_York", "ET");
+      const mt  = formatInTZ(iso, "America/Phoenix", "MT");
+      const pt  = formatInTZ(iso, "America/Los_Angeles", "PT");
+      const utc = formatUTC(iso);
+      return `${et} | ${mt} | ${pt} | ${utc}`;
     }
-  }
+    // =====================================
 
-  if(liqUsd !== null) v2Reasons.push(`liqUsd=${liqUsd} (+0)`);
-  if(fdv !== null) v2Reasons.push(`fdv=${fdv} (+0)`);
-  if(vol24 !== null) v2Reasons.push(`vol24=${vol24} (+0)`);
-  if(ageMin !== null) v2Reasons.push(`ageMin=${ageMin.toFixed(1)} (+0)`);
+    // ===== Sound alerts (Web Audio API) =====
+    let audioUnlocked = false;
+    let audioCtx = null;
 
-  return { v2Score, stage, tags, action, v2Reasons, confidence };
-}
+    function unlockAudio() {
+      if (audioUnlocked) return;
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx();
+      audioCtx.resume?.();
+      audioUnlocked = true;
+      console.log("Audio unlocked");
+    }
 
-/* -------------------- APPLY V2 TO MESSAGES -------------------- */
+    window.addEventListener("click", unlockAudio, { once: true });
 
-function applyV2(msg){
-  const v2 = scoreV2(msg);
-  return {
-    ...msg,
-    v2Score: v2.v2Score,
-    v2Stage: v2.stage,
-    v2Tags: v2.tags,
-    v2Action: v2.action,
-    v2Reasons: v2.v2Reasons,
-    v2Confidence: v2.confidence
-  };
-}
+    function beepOnce() {
+      if (!audioUnlocked || !audioCtx) return;
 
-/* -------------------- WINDOW FILTER (NEW) -------------------- */
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
 
-function getWindowMs(){
-  const m = Number(windowMinEl.value || 20);
-  return Math.max(1, m) * 60 * 1000;
-}
+      osc.type = "square";
+      osc.frequency.value = 880;
 
-// keep only items whose timestamp is within window
-function pruneByWindow(){
-  const now = Date.now();
-  const win = getWindowMs();
-  items = items.filter(x => {
-    const t = Date.parse(x.ts);
-    if(!Number.isFinite(t)) return true; // if missing ts, keep (or change to false if you prefer)
-    return (now - t) <= win;
-  });
-}
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
 
-/* -------------------- RENDER -------------------- */
+      const t = audioCtx.currentTime;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
 
-function badgeClassForStage(stage){
-  if(!stage) return "";
-  if(stage.includes("Stage 0") || stage.includes("Stage 4")) return "danger";
-  if(stage.includes("Stage 3")) return "warn";
-  if(stage.includes("Stage 1") || stage.includes("Stage 2")) return "strong";
-  return "";
-}
+      osc.start(t);
+      osc.stop(t + 0.21);
+    }
 
-function badgeClassForConfidence(conf){
-  if(conf === "High") return "strong";
-  if(conf === "Medium") return "warn";
-  return "danger";
-}
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function render(){
-  // NEW: always enforce time window before rendering
-  pruneByWindow();
+    async function beepTimes(n) {
+      for (let i = 0; i < n; i++) {
+        beepOnce();
+        await sleep(220);
+      }
+    }
 
-  const minScore=Number(minScoreEl.value||0);
-  const kw=(kwEl.value||"").toLowerCase().trim();
+    function scoreToBeeps(score, threshold) {
+      const s = Number(score);
+      const t = Number(threshold);
+      if (!Number.isFinite(s) || !Number.isFinite(t)) return 0;
+      if (s < t) return 0;
+      return Math.min(5, 1 + (s - t));
+    }
 
-  const filtered=items.filter(x=>{
-    const s = Number(x.v2Score ?? x.score ?? 0);
-    if(s < minScore) return false;
-    if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
-    return true;
-  });
+    function tryBeep(score) {
+      const threshold = Number(alertScoreEl.value || 0);
+      const enabled = soundOnEl.checked;
 
-  list.innerHTML=filtered.map(x=>{
-    const reasons = x.v2Reasons || [];
-    const g = groupReasons(reasons);
+      if (!enabled) return;
+      if (!audioUnlocked) return;
 
-    const baseSum = sumPts(g.base);
-    const momSum  = sumPts(g.momentum);
-    const riskSum = sumPts(g.risk);
+      const n = scoreToBeeps(score, threshold);
+      if (n <= 0) return;
 
-    const v2Score = Number(x.v2Score ?? 0);
-    const stage = x.v2Stage || "Unknown";
-    const action = x.v2Action || "Watch";
-    const tags = x.v2Tags || [];
-    const conf = x.v2Confidence || "Low";
+      beepTimes(n);
+    }
+    // ======================================
 
-    return `
-      <div class="card">
-        <div>
-          <span class="score">V2 Score ${v2Score}</span>
-          — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}
-        </div>
+    function parseReasonItem(r) {
+      const s = String(r);
+      const m = s.match(/\(([-+]\d+)\)/);
+      const pts = m ? Number(m[1]) : 0;
+      const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+      return { raw: s, pts, text };
+    }
 
-        <div class="badgeRow">
-          <span class="badge ${badgeClassForStage(stage)}">${stage}</span>
-          <span class="badge ${badgeClassForConfidence(conf)}">Confidence: ${conf}</span>
-          <span class="badge ${action.includes("Avoid") ? "danger" : action.includes("Wait") ? "warn" : "strong"}">Action: ${action}</span>
-          ${tags.map(t => {
-            const cls = t.includes("Illiquid") ? "danger" : (t.includes("FOMO") || t.includes("Turnover")) ? "warn" : "warn";
-            return `<span class="badge ${cls}">${t}</span>`;
-          }).join("")}
-        </div>
+    function groupReasons(reasons) {
+      const base = [];
+      const momentum = [];
+      const risk = [];
 
-        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
-        <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+      for (const r of (reasons || [])) {
+        const item = parseReasonItem(r);
 
-        <div class="group">
-          <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
-          ${renderReasonList(g.base)}
-        </div>
+        if (item.pts < 0 || /\(-\d+\)/.test(String(r))) {
+          risk.push(item);
+          continue;
+        }
+        if (/^(liq\+|px\+)/i.test(item.text)) {
+          momentum.push(item);
+          continue;
+        }
+        base.push(item);
+      }
 
-        <div class="group">
-          <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
-          ${renderReasonList(g.momentum)}
-        </div>
+      base.sort((a, b) => b.pts - a.pts);
+      momentum.sort((a, b) => b.pts - a.pts);
+      risk.sort((a, b) => a.pts - b.pts);
 
-        <div class="group">
-          <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
-          ${renderReasonList(g.risk)}
-        </div>
+      return { base, momentum, risk };
+    }
 
-        <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
-      </div>
-    `;
-  }).join("");
+    function renderReasonList(items) {
+      if (!items.length) return `<div class="muted">(none)</div>`;
+      return `
+        <ul class="reasons">
+          ${items.map(it => `
+            <li>
+              <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+              <span class="rtext">${it.text}</span>
+            </li>
+          `).join("")}
+        </ul>
+      `;
+    }
 
-  // optional: show count
-  statusEl.textContent = `Connected (Live) • showing ${filtered.length} (last ${Number(windowMinEl.value||20)}m)`;
-}
+    function sumPts(items) {
+      return (items || []).reduce((acc, it) => acc + (Number(it.pts) || 0), 0);
+    }
 
-clearBtn.onclick=()=>{ items=[]; render(); };
-minScoreEl.oninput=render;
-kwEl.oninput=render;
-windowMinEl.oninput=render; // NEW
+    function render() {
+      const minScore = Number(minScoreEl.value || 0);
+      const kw = (kwEl.value || "").toLowerCase().trim();
 
-// NEW: prune every 10s so list auto-updates even without new events
-setInterval(()=>render(), 10000);
+      const filtered = items.filter(x => {
+        if (!x || typeof x !== "object" || !x.tokenSymbol) return false;
+        if (x.score < minScore) return false;
+        if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
 
-/* -------------------- API -------------------- */
+        if (x.ageMin == null) return false;
+        if (Number(x.ageMin) > AGE_MAX) return false;
 
-async function loadInitial(){
-  const res=await fetch("/api/signals");
-  const data=await res.json();
-  const raw = data.signals || [];
-  items = raw.map(applyV2);
-  render();
-}
+        return true;
+      });
 
-loadInitial();
+      list.innerHTML = filtered.map(x => {
+        const g = groupReasons(x.reasons || []);
+        const baseSum = sumPts(g.base);
+        const momSum  = sumPts(g.momentum);
+        const riskSum = sumPts(g.risk);
 
-const es=new EventSource("/events");
+        return `
+          <div class="card">
+            <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
+            <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
+            <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
 
-es.onopen=()=>{ /* render() sets status text */ render(); };
-es.onerror=()=>statusEl.textContent="Reconnecting...";
+            <div class="muted">
+              <div class="group">
+                <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
+                ${renderReasonList(g.base)}
+              </div>
+              <div class="group">
+                <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
+                ${renderReasonList(g.momentum)}
+              </div>
+              <div class="group">
+                <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
+                ${renderReasonList(g.risk)}
+              </div>
+            </div>
 
-es.onmessage=(ev)=>{
-  const msg=JSON.parse(ev.data);
-  if(!msg?.tokenSymbol) return;
+            <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+          </div>
+        `;
+      }).join("");
+    }
 
-  const withV2 = applyV2(msg);
+    clearBtn.onclick = () => { items = []; render(); };
 
-  items.unshift(withV2);
+    async function loadInitial() {
+      const res = await fetch("/api/signals");
+      const data = await res.json();
+      items = data.signals || [];
+      render();
+    }
 
-  // NEW: keep window only (+ small cap as backup)
-  pruneByWindow();
-  items=items.slice(0,500);
+    loadInitial();
 
-  render();
-  tryBeep(withV2.v2Score ?? 0);
-};
-</script>
+    const es = new EventSource("/events");
+    es.onopen = () => statusEl.textContent = "✅ Connected (live)";
+    es.onerror = () => statusEl.textContent = "⚠️ Disconnected, retrying…";
+    es.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
+
+      items.unshift(msg);
+      items = items.slice(0, 200);
+      render();
+
+      tryBeep(msg.score);
+    };
+
+    minScoreEl.oninput = render;
+    kwEl.oninput = render;
+  </script>
 </body>
 </html>
