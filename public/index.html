@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -23,9 +23,8 @@
     .rtext { color: #444; }
 
     .toggle { display:flex; align-items:center; gap:6px; }
-    .small { width:70px; }
+    .small { width:80px; }
 
-    /* ✅ 顶部时钟条 */
     .clockbar{
       margin: 10px 0 14px;
       padding: 10px 12px;
@@ -52,9 +51,9 @@
 </head>
 
 <body>
-  <h2>🚀 Meme Monitor Dashboard</h2>
 
-  <!-- ✅ 现在时间：ET / MT / PT -->
+  <h2 id="title" style="color:gold;"></h2>
+
   <div class="clockbar">
     <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
     <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
@@ -62,18 +61,18 @@
   </div>
 
   <div class="row">
-    <label>最小分数：<input id="minScore" type="number" value="3" min="0" max="10"></label>
-    <label>关键词：<input id="kw" placeholder="例如: dog, cat, pepe"></label>
+    <label>Min Score: <input id="minScore" type="number" value="3" min="0" max="10"></label>
+    <label>Keyword: <input id="kw" placeholder="e.g. dog, cat, pepe"></label>
 
-    <label>提醒分数 ≥ <input id="alertScore" class="small" type="number" value="5" min="0" max="10"></label>
-    <label class="toggle"><input id="soundOn" type="checkbox" checked>声音提醒</label>
+    <label>Alert Score ≥ <input id="alertScore" class="small" type="number" value="5" min="0" max="10"></label>
+    <label class="toggle"><input id="soundOn" type="checkbox" checked>Sound</label>
 
-    <button id="clear">清空</button>
-    <span class="muted" id="status">连接中…</span>
+    <button id="clear">Clear</button>
+    <span class="muted" id="status">Connecting…</span>
   </div>
 
   <div class="muted" style="margin-top:6px;">
-    提示：第一次打开页面请先点击任意位置一次，浏览器才允许播放提示音。
+    Tip: Click anywhere once after opening this page to allow the browser to play alert sounds.
   </div>
 
   <div id="list"></div>
@@ -83,6 +82,11 @@
   </audio>
 
   <script>
+    const AGE_MAX = 10;
+
+    const titleEl = document.getElementById("title");
+    titleEl.textContent = `🚀 New Meme Monitor Dashboard (${AGE_MAX} minutes)`;
+
     const list = document.getElementById("list");
     const minScoreEl = document.getElementById("minScore");
     const kwEl = document.getElementById("kw");
@@ -94,7 +98,7 @@
 
     let items = [];
 
-    // ====== ✅ 顶部实时钟：ET / MT / PT ======
+    // ===== Live clocks: ET / MT / PT =====
     const clockET = document.getElementById("clockET");
     const clockMT = document.getElementById("clockMT");
     const clockPT = document.getElementById("clockPT");
@@ -110,17 +114,16 @@
     }
 
     function tickClocks() {
-      // 自动处理夏令时（EDT/EST、MDT/MST、PDT/PST）
-      clockET.textContent = nowInTZ("America/New_York");
-      clockMT.textContent = nowInTZ("America/Edmonton");
-      clockPT.textContent = nowInTZ("America/Los_Angeles");
+      clockET.textContent = nowInTZ("America/New_York");        // ET
+      clockMT.textContent = nowInTZ("America/Phoenix");         // MT (Phoenix)
+      clockPT.textContent = nowInTZ("America/Los_Angeles");     // PT
     }
 
     tickClocks();
     setInterval(tickClocks, 1000);
-    // ========================================
+    // ====================================
 
-    // ====== ✅ 时间格式：同时显示 UTC + MT ======
+    // ===== Time format: ET | MT | PT | UTC =====
     function pad2(n) { return String(n).padStart(2, "0"); }
 
     function formatUTC(iso) {
@@ -135,12 +138,12 @@
       return `${y}-${mo}-${da} ${hh}:${mm}:${ss} UTC`;
     }
 
-    function formatMT(iso) {
+    function formatInTZ(iso, tz, label) {
       if (!iso) return "";
       const d = new Date(iso);
 
       const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Edmonton",
+        timeZone: tz,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -158,20 +161,19 @@
       const mm = get("minute");
       const ss = get("second");
 
-      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} MT`;
+      return `${y}-${mo}-${da} ${hh}:${mm}:${ss} ${label}`;
     }
 
-    function formatTimeBoth(iso) {
-      const mt = formatMT(iso);
+    function formatTimeZones(iso) {
+      const et  = formatInTZ(iso, "America/New_York", "ET");
+      const mt  = formatInTZ(iso, "America/Phoenix", "MT");
+      const pt  = formatInTZ(iso, "America/Los_Angeles", "PT");
       const utc = formatUTC(iso);
-      if (!mt && !utc) return "";
-      if (!mt) return utc;
-      if (!utc) return mt;
-      return `${mt} | ${utc}`;
+      return `${et} | ${mt} | ${pt} | ${utc}`;
     }
-    // =======================================
+    // =====================================
 
-    // ====== 声音提醒（Web Audio API：稳定可听见 + 分数越高响越多次）=====
+    // ===== Sound alerts (Web Audio API) =====
     let audioUnlocked = false;
     let audioCtx = null;
 
@@ -236,7 +238,7 @@
 
       beepTimes(n);
     }
-    // ======================================================================
+    // ======================================
 
     function parseReasonItem(r) {
       const s = String(r);
@@ -273,7 +275,7 @@
     }
 
     function renderReasonList(items) {
-      if (!items.length) return `<div class="muted">（无）</div>`;
+      if (!items.length) return `<div class="muted">(none)</div>`;
       return `
         <ul class="reasons">
           ${items.map(it => `
@@ -295,39 +297,44 @@
       const kw = (kwEl.value || "").toLowerCase().trim();
 
       const filtered = items.filter(x => {
+        if (!x || typeof x !== "object" || !x.tokenSymbol) return false;
         if (x.score < minScore) return false;
         if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
+
+        if (x.ageMin == null) return false;
+        if (Number(x.ageMin) > AGE_MAX) return false;
+
         return true;
       });
 
       list.innerHTML = filtered.map(x => {
         const g = groupReasons(x.reasons || []);
         const baseSum = sumPts(g.base);
-        const momSum = sumPts(g.momentum);
+        const momSum  = sumPts(g.momentum);
         const riskSum = sumPts(g.risk);
 
         return `
           <div class="card">
             <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
-            <div class="muted">${formatTimeBoth(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
+            <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
             <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
 
             <div class="muted">
               <div class="group">
-                <div class="gtitle">基础分（${baseSum >= 0 ? "+" : ""}${baseSum}）</div>
+                <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
                 ${renderReasonList(g.base)}
               </div>
               <div class="group">
-                <div class="gtitle">动量分（${momSum >= 0 ? "+" : ""}${momSum}）</div>
+                <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
                 ${renderReasonList(g.momentum)}
               </div>
               <div class="group">
-                <div class="gtitle">风险扣分（${riskSum >= 0 ? "+" : ""}${riskSum}）</div>
+                <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
                 ${renderReasonList(g.risk)}
               </div>
             </div>
 
-            <div><a href="${x.url}" target="_blank">打开 DexScreener</a></div>
+            <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
           </div>
         `;
       }).join("");
@@ -345,11 +352,10 @@
     loadInitial();
 
     const es = new EventSource("/events");
-    es.onopen = () => statusEl.textContent = "✅ 已连接（实时更新）";
-    es.onerror = () => statusEl.textContent = "⚠️ 连接断开，自动重连中…";
+    es.onopen = () => statusEl.textContent = "✅ Connected (live)";
+    es.onerror = () => statusEl.textContent = "⚠️ Disconnected, retrying…";
     es.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
-
       if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
 
       items.unshift(msg);
