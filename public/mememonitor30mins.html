@@ -6,21 +6,22 @@
 <title>Meme Monitor Dashboard</title>
 
 <style>
-body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; background:#fafafa; }
 .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 input { padding:8px; }
-.card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
+.card { border:1px solid #e5e5e5; border-radius:14px; padding:14px; margin:12px 0; background:#fff; }
 .muted { color:#666; font-size:12px; }
-.score { font-weight:800; }
+.score { font-weight:900; }
 a { word-break: break-all; }
 
-.group { margin-top:8px; padding-top:8px; border-top:1px dashed #e5e5e5; }
-.gtitle { font-size:12px; font-weight:800; margin-bottom:6px; }
+.group { margin-top:10px; padding-top:10px; border-top:1px dashed #e5e5e5; }
+.gtitle { font-size:12px; font-weight:900; margin-bottom:6px; color:#333; }
 .reasons { margin:0; padding-left:16px; }
 .reasons li { margin:4px 0; display:flex; gap:8px; }
-.pts { font-weight:800; min-width:34px; }
+.pts { font-weight:900; min-width:36px; }
 .pts.pos { color:#0a7; }
 .pts.neg { color:#d33; }
+.pts.zero { color:#999; }
 
 .toggle { display:flex; align-items:center; gap:6px; }
 .small { width:70px; }
@@ -29,39 +30,53 @@ a { word-break: break-all; }
   margin:10px 0 14px;
   padding:10px 12px;
   border:1px solid #eee;
-  border-radius:10px;
-  background:#fafafa;
+  border-radius:12px;
+  background:#fff;
   display:flex;
   gap:14px;
+  flex-wrap:wrap;
+  align-items:center;
 }
 .clk {
   display:flex;
   gap:8px;
   padding:6px 10px;
   border:1px dashed #ddd;
-  border-radius:10px;
-  background:#fff;
+  border-radius:999px;
+  background:#fafafa;
 }
-.clk .label { font-weight:800; }
+.clk .label { font-weight:900; }
 .clk .time { font-variant-numeric: tabular-nums; }
 
-.badgeRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+.badgeRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 .badge{
   font-size:12px;
   border:1px solid #eee;
   background:#fafafa;
-  padding:4px 8px;
+  padding:4px 10px;
   border-radius:999px;
+  font-weight:800;
 }
 .badge.strong{ border-color:#bfe7d7; background:#e9fff6; }
 .badge.warn{ border-color:#ffd7a6; background:#fff3e1; }
 .badge.danger{ border-color:#ffb3b3; background:#ffecec; }
+
+.kpi { margin-top:6px; }
+.kpi code{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color:#333;
+  background:#f6f6f6;
+  border:1px solid #eee;
+  padding:2px 6px;
+  border-radius:8px;
+}
 </style>
 </head>
 
 <body>
 
-<h2>🚀 Meme Monitor Dashboard</h2>
+<h2>🚀 Meme Monitor Dashboard (30 minutes)</h2>
 
 <!-- Live Clocks -->
 <div class="clockbar">
@@ -77,6 +92,10 @@ a { word-break: break-all; }
 
   <label>Keyword:
     <input id="kw" placeholder="e.g. dog, pepe">
+  </label>
+
+  <label>Age Window (minutes):
+    <input id="ageWindow" class="small" type="number" value="30" min="1" max="240">
   </label>
 
   <label>Alert V2 Score ≥
@@ -96,12 +115,14 @@ a { word-break: break-all; }
 Click anywhere once to enable sound alerts.
 </div>
 
+<div class="muted" style="margin-top:6px;">
+Now watching: <b>new memes published within <span id="ageWindowLabel">30</span> minutes</b>
+</div>
+
 <div id="list"></div>
 
 <script>
-
 /* -------------------- GLOBAL -------------------- */
-
 const list = document.getElementById("list");
 const minScoreEl = document.getElementById("minScore");
 const kwEl = document.getElementById("kw");
@@ -110,10 +131,18 @@ const clearBtn = document.getElementById("clear");
 const alertScoreEl = document.getElementById("alertScore");
 const soundOnEl = document.getElementById("soundOn");
 
+const ageWindowEl = document.getElementById("ageWindow");
+const ageWindowLabel = document.getElementById("ageWindowLabel");
+
+// WATCH WINDOW: 30 min by default (user can change)
+function getAgeMax(){
+  const v = Number(ageWindowEl.value || 30);
+  return Number.isFinite(v) ? Math.max(1, v) : 30;
+}
+
 let items = [];
 
 /* -------------------- LIVE CLOCKS -------------------- */
-
 function nowInTZ(tz) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: tz,
@@ -123,25 +152,20 @@ function nowInTZ(tz) {
     hour12: false
   }).format(new Date());
 }
-
 function tickClocks() {
   document.getElementById("clockET").textContent = nowInTZ("America/New_York");
   document.getElementById("clockMT").textContent = nowInTZ("America/Phoenix");
   document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
 }
-
 tickClocks();
 setInterval(tickClocks, 1000);
 
 /* -------------------- TIME FORMAT -------------------- */
-
 function pad2(n){ return String(n).padStart(2,"0"); }
-
 function formatUTC(iso){
   const d = new Date(iso);
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
 }
-
 function formatInTZ(iso, tz, label){
   const d = new Date(iso);
   const parts = new Intl.DateTimeFormat("en-CA",{
@@ -154,11 +178,9 @@ function formatInTZ(iso, tz, label){
     second:"2-digit",
     hour12:false
   }).formatToParts(d);
-
   const get = t => parts.find(p=>p.type===t)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
 }
-
 function formatTimeZones(iso){
   return [
     formatInTZ(iso,"America/New_York","ET"),
@@ -169,7 +191,6 @@ function formatTimeZones(iso){
 }
 
 /* -------------------- SOUND -------------------- */
-
 let audioUnlocked=false;
 let audioCtx=null;
 
@@ -177,7 +198,7 @@ window.addEventListener("click",()=>{
   if(audioUnlocked) return;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   audioCtx=new Ctx();
-  audioCtx.resume();
+  audioCtx.resume?.();
   audioUnlocked=true;
 },{once:true});
 
@@ -196,14 +217,12 @@ function beepOnce(){
   osc.start(t);
   osc.stop(t+0.21);
 }
-
 async function beepTimes(n){
   for(let i=0;i<n;i++){
     beepOnce();
     await new Promise(r=>setTimeout(r,220));
   }
 }
-
 function tryBeep(v2Score){
   if(!soundOnEl.checked) return;
   const threshold=Number(alertScoreEl.value||0);
@@ -213,7 +232,6 @@ function tryBeep(v2Score){
 }
 
 /* -------------------- SCORE DETAILS (existing renderer) -------------------- */
-
 function parseReasonItem(r){
   const s = String(r ?? "");
   const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
@@ -221,48 +239,39 @@ function parseReasonItem(r){
   const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
   return { pts, text };
 }
-
 function groupReasons(reasons){
   const base = [];
   const momentum = [];
   const risk = [];
-
   for(const r of (reasons || [])){
     const item = parseReasonItem(r);
-
-    // Negative points -> Risk
     if(item.pts < 0){
       risk.push(item);
       continue;
     }
-
-    // Momentum tags: liq+ / px+
     if(/^(liq\+|px\+)/i.test(item.text)){
       momentum.push(item);
       continue;
     }
-
     base.push(item);
   }
-
   base.sort((a,b)=>b.pts-a.pts);
   momentum.sort((a,b)=>b.pts-a.pts);
   risk.sort((a,b)=>a.pts-b.pts);
-
   return { base, momentum, risk };
 }
-
 function sumPts(arr){
   return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
 }
-
 function renderReasonList(arr){
   if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
   return `
     <ul class="reasons">
       ${arr.map(it => `
         <li>
-          <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+          <span class="pts ${it.pts < 0 ? "neg" : it.pts === 0 ? "zero" : "pos"}">
+            ${it.pts > 0 ? "+" : ""}${it.pts}
+          </span>
           <span>${it.text}</span>
         </li>
       `).join("")}
@@ -271,7 +280,6 @@ function renderReasonList(arr){
 }
 
 /* -------------------- V2 HELPERS -------------------- */
-
 function toNum(x){
   if(x === null || x === undefined) return null;
   if(typeof x === "number") return Number.isFinite(x) ? x : null;
@@ -281,19 +289,16 @@ function toNum(x){
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
-
 function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
 
-// Extract useful signals from backend "reasons" text if API doesn't send them explicitly.
 function extractFromReasons(reasons){
   const out = {
-    liqPct3m: null,   // "liq+136%/3m"
-    pxPct1m: null,    // "px+27%/1m"
+    liqPct3m: null,
+    pxPct1m: null,
     pxPct5m: null,
     buys5m_ge_sells5m: false,
     buys5m_le_sells5m: false,
   };
-
   for(const r of (reasons || [])){
     const { text } = parseReasonItem(r);
 
@@ -309,16 +314,10 @@ function extractFromReasons(reasons){
     if(/buys5m\s*>=\s*sells5m/i.test(text)) out.buys5m_ge_sells5m = true;
     if(/buys5m\s*<=\s*sells5m/i.test(text)) out.buys5m_le_sells5m = true;
   }
-
   return out;
 }
 
 /* -------------------- V2 SCORING -------------------- */
-/*
-  v2: 0–10 points (5 modules x 0–2)
-  + Tags (no points): Illiquid Microcap, FOMO Spike, High Turnover (NEW)
-  + Confidence: Low/Medium/High (NEW)
-*/
 function scoreV2(msg){
   const tags = [];
 
@@ -337,40 +336,34 @@ function scoreV2(msg){
   const px1m = rx.pxPct1m;
   const px5m = rx.pxPct5m;
 
-  // ---- Tags (NEW): High Turnover ----
+  // Tags
   let turnover = null;
   if(liqUsd !== null && liqUsd > 0 && vol24 !== null){
     turnover = vol24 / liqUsd;
-    if(turnover > 15){
-      tags.push("High Turnover");
-    }
+    if(turnover > 15) tags.push("High Turnover");
   }
+  if(liqUsd !== null && liqUsd < 5000) tags.push("Illiquid Microcap");
 
-  // --- Hard Filter (Stage 0) ---
-  if(liqUsd !== null && liqUsd < 5000){
-    tags.push("Illiquid Microcap");
-  }
-
-  // Module A: Liquidity Quality (0–2)
+  // Liquidity Quality (0–2)
   let A = 0;
   if(liqUsd !== null){
-    if(liqUsd >= 25000){ A = 2; }
-    else if(liqUsd >= 10000){ A = 1; }
-    else { A = 0; }
+    if(liqUsd >= 25000) A = 2;
+    else if(liqUsd >= 10000) A = 1;
+    else A = 0;
   }
 
-  // Module B: Participation / 分散度 (0–2)
+  // Participation (0–2)
   let B = 0;
   if(makers !== null){
-    if(makers >= 300){ B = 2; }
-    else if(makers >= 80){ B = 1; }
-    else { B = 0; }
+    if(makers >= 300) B = 2;
+    else if(makers >= 80) B = 1;
+    else B = 0;
   } else {
-    if(vol24 !== null && vol24 >= 50000){ B = 1; }
-    else { B = 0; }
+    if(vol24 !== null && vol24 >= 50000) B = 1;
+    else B = 0;
   }
 
-  // Module C: Orderflow / 买卖结构 (0–2)
+  // Orderflow (0–2)
   let C = 0;
   if(buys !== null && sells !== null && sells > 0){
     const ratio = buys / sells;
@@ -383,7 +376,7 @@ function scoreV2(msg){
     C = 0;
   }
 
-  // Module D: Volume Energy / 交易能量 (0–2)
+  // Volume Energy (0–2)
   const vol5m = toNum(msg.volume5m) ?? null;
   const vol15m = toNum(msg.volume15m) ?? null;
 
@@ -402,7 +395,7 @@ function scoreV2(msg){
     else D = 0;
   }
 
-  // Module E: Price Structure / 价格结构 (0–2) + Tag FOMO Spike
+  // Price Structure (0–2) + FOMO Spike tag
   let E = 0;
   const fomoSpike = (px1m !== null && px1m > 25) || (px5m !== null && px5m > 60);
   if(fomoSpike){
@@ -416,15 +409,14 @@ function scoreV2(msg){
     else E = 1;
   }
 
-  // Total score 0–10
   let v2Score = clamp(A + B + C + D + E, 0, 10);
 
-  // Confidence (NEW)
+  // Confidence
   let confidence = "Low";
   if(v2Score >= 7) confidence = "High";
   else if(v2Score >= 5) confidence = "Medium";
 
-  // Stage decision (UPDATED: more precise)
+  // Stage / Action
   let stage = "Watch";
   let action = "Watch";
 
@@ -435,40 +427,29 @@ function scoreV2(msg){
     v2Score = Math.min(v2Score, 2);
     confidence = "Low";
   } else {
-    const hasDistTag = tags.includes("Profit Distribution"); // placeholder if you add it later
-
-    // Stage 1: Launch (<=10m)
     if(ageMin !== null && ageMin <= 10 && v2Score >= 5 && !tags.includes("FOMO Spike")){
       stage = "Stage 1 — Launch";
       action = "Small Entry / Watch Pullback";
-    }
-    // Stage 2: Expansion (UPDATED)
-    else if(ageMin !== null && ageMin <= 120 && v2Score >= 6 && !hasDistTag){
+    } else if(ageMin !== null && ageMin <= 120 && v2Score >= 6){
       stage = "Stage 2 — Expansion";
       action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Pullback / Breakout";
-    }
-    // Stage 3: Distribution
-    else if(v2Score >= 6 && (tags.includes("FOMO Spike") || hasDistTag || (buys !== null && sells !== null && buys <= sells))){
+    } else if(v2Score >= 6 && (tags.includes("FOMO Spike") || (buys !== null && sells !== null && buys <= sells))){
       stage = "Stage 3 — Distribution";
       action = "Avoid Chasing / Wait Deep Pullback";
-    }
-    // Stage 4: Decay
-    else if(v2Score <= 4){
+    } else if(v2Score <= 4){
       stage = "Stage 4 — Decay";
       action = "Avoid";
-    }
-    else {
+    } else {
       stage = "Watch";
       action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Watch";
     }
 
-    // If High Turnover, nudge action to be more cautious (NEW)
     if(tags.includes("High Turnover") && action !== "Avoid"){
       action = action.includes("Wait") ? action : "Watch (High Turnover)";
     }
   }
 
-  // Build v2 reasons with "(+n)" formatting so your existing UI groups them.
+  // v2 reasons (keeps your grouping)
   const v2Reasons = [];
   v2Reasons.push(`Liquidity Quality: ${A}/2 (+${A})`);
   v2Reasons.push(`Participation: ${B}/2 (+${B})`);
@@ -476,12 +457,11 @@ function scoreV2(msg){
   v2Reasons.push(`Volume Energy: ${D}/2 (+${D})`);
   v2Reasons.push(`Price Structure: ${E}/2 (+${E})`);
 
-  // Tags & extra diagnostics (NEW)
   if(tags.length) v2Reasons.push(`Tags: ${tags.join(", ")} (+0)`);
   if(turnover !== null) v2Reasons.push(`turnover=vol24/liqUsd=${turnover.toFixed(1)}x (+0)`);
   v2Reasons.push(`Confidence: ${confidence} (+0)`);
 
-  // Keep original momentum-like signals (liq+/px+) if backend sent them in msg.reasons
+  // keep original momentum strings if present
   for(const r of (msg.reasons || [])){
     const { text, pts } = parseReasonItem(r);
     if(/^(liq\+|px\+)/i.test(text)){
@@ -497,8 +477,6 @@ function scoreV2(msg){
   return { v2Score, stage, tags, action, v2Reasons, confidence };
 }
 
-/* -------------------- APPLY V2 TO MESSAGES -------------------- */
-
 function applyV2(msg){
   const v2 = scoreV2(msg);
   return {
@@ -512,8 +490,25 @@ function applyV2(msg){
   };
 }
 
-/* -------------------- RENDER -------------------- */
+/* -------------------- AGE WINDOW FILTER (NEW) -------------------- */
+function withinAgeWindow(x){
+  const ageMax = getAgeMax();
+  const age = toNum(x.ageMin);
+  if(age === null) return false;
+  return age <= ageMax;
+}
 
+// prune old items periodically so list stays “new”
+function pruneOld(){
+  const ageMax = getAgeMax();
+  items = items.filter(x => {
+    const a = toNum(x.ageMin);
+    return a !== null && a <= ageMax;
+  });
+  render();
+}
+
+/* -------------------- RENDER -------------------- */
 function badgeClassForStage(stage){
   if(!stage) return "";
   if(stage.includes("Stage 0") || stage.includes("Stage 4")) return "danger";
@@ -521,7 +516,6 @@ function badgeClassForStage(stage){
   if(stage.includes("Stage 1") || stage.includes("Stage 2")) return "strong";
   return "";
 }
-
 function badgeClassForConfidence(conf){
   if(conf === "High") return "strong";
   if(conf === "Medium") return "warn";
@@ -529,17 +523,25 @@ function badgeClassForConfidence(conf){
 }
 
 function render(){
-  const minScore=Number(minScoreEl.value||0);
-  const kw=(kwEl.value||"").toLowerCase().trim();
+  ageWindowLabel.textContent = String(getAgeMax());
 
-  const filtered=items.filter(x=>{
+  const minScore = Number(minScoreEl.value || 0);
+  const kw = (kwEl.value || "").toLowerCase().trim();
+  const ageMax = getAgeMax();
+
+  const filtered = items.filter(x=>{
     const s = Number(x.v2Score ?? x.score ?? 0);
     if(s < minScore) return false;
     if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
+
+    const age = toNum(x.ageMin);
+    if(age === null) return false;
+    if(age > ageMax) return false; // ✅ only show new memes within age window
+
     return true;
   });
 
-  list.innerHTML=filtered.map(x=>{
+  list.innerHTML = filtered.map(x=>{
     const reasons = x.v2Reasons || [];
     const g = groupReasons(reasons);
 
@@ -557,7 +559,7 @@ function render(){
       <div class="card">
         <div>
           <span class="score">V2 Score ${v2Score}</span>
-          — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}
+          — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol || "?"}
         </div>
 
         <div class="badgeRow">
@@ -565,13 +567,20 @@ function render(){
           <span class="badge ${badgeClassForConfidence(conf)}">Confidence: ${conf}</span>
           <span class="badge ${action.includes("Avoid") ? "danger" : action.includes("Wait") ? "warn" : "strong"}">Action: ${action}</span>
           ${tags.map(t => {
-            const cls = t.includes("Illiquid") ? "danger" : (t.includes("FOMO") || t.includes("Turnover")) ? "warn" : "warn";
+            const cls =
+              t.includes("Illiquid") ? "danger" :
+              (t.includes("FOMO") || t.includes("Turnover")) ? "warn" : "warn";
             return `<span class="badge ${cls}">${t}</span>`;
           }).join("")}
         </div>
 
-        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
-        <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
+
+        <div class="kpi">
+          <code>liq</code> ${x.liquidityUsd ?? "?"}
+          &nbsp;|&nbsp; <code>fdv</code> ${x.fdv ?? "?"}
+          &nbsp;|&nbsp; <code>vol24</code> ${x.volume24h ?? "?"}
+        </div>
 
         <div class="group">
           <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
@@ -594,39 +603,50 @@ function render(){
   }).join("");
 }
 
-clearBtn.onclick=()=>{ items=[]; render(); };
-minScoreEl.oninput=render;
-kwEl.oninput=render;
+clearBtn.onclick = ()=>{ items=[]; render(); };
+minScoreEl.oninput = render;
+kwEl.oninput = render;
+
+// ✅ when user changes window, re-filter + prune
+ageWindowEl.oninput = ()=>{
+  ageWindowLabel.textContent = String(getAgeMax());
+  pruneOld();
+};
 
 /* -------------------- API -------------------- */
-
 async function loadInitial(){
-  const res=await fetch("/api/signals");
-  const data=await res.json();
+  const res = await fetch("/api/signals");
+  const data = await res.json();
   const raw = data.signals || [];
-  items = raw.map(applyV2);
+  // ✅ keep only within window at load time
+  items = raw.map(applyV2).filter(withinAgeWindow);
   render();
 }
-
 loadInitial();
 
-const es=new EventSource("/events");
+const es = new EventSource("/events");
 
-es.onopen=()=>statusEl.textContent="Connected (Live)";
-es.onerror=()=>statusEl.textContent="Reconnecting...";
+es.onopen = ()=> statusEl.textContent = "Connected (Live)";
+es.onerror = ()=> statusEl.textContent = "Reconnecting...";
 
-es.onmessage=(ev)=>{
-  const msg=JSON.parse(ev.data);
+es.onmessage = (ev)=>{
+  const msg = JSON.parse(ev.data);
   if(!msg?.tokenSymbol) return;
 
   const withV2 = applyV2(msg);
 
+  // ✅ only accept if within 30 min (or chosen window)
+  if(!withinAgeWindow(withV2)) return;
+
   items.unshift(withV2);
-  items=items.slice(0,200);
+  items = items.slice(0, 200);
+
   render();
   tryBeep(withV2.v2Score ?? 0);
 };
 
+// ✅ auto prune every 20s so list always stays “<= 30 min”
+setInterval(pruneOld, 20000);
 </script>
 </body>
 </html>
