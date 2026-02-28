@@ -103,7 +103,6 @@ a { word-break: break-all; }
     <input id="kw" placeholder="e.g. dog, pepe">
   </label>
 
-  <!-- ✅ fixed to 30 -->
   <label>Age Window (minutes):
     <input id="ageWindow" class="small" type="number" value="30" min="1" max="240">
   </label>
@@ -127,6 +126,10 @@ Click anywhere once to enable sound alerts.
 
 <div class="muted" style="margin-top:6px;">
 Now watching: <b>new memes published within <span id="ageWindowLabel">30</span> minutes</b>
+</div>
+
+<div class="muted" style="margin-top:6px;">
+<b>Note:</b> Age shown is <b>Signal age</b> (time since your backend emitted the signal). It may differ from DexScreener “pair age”.
 </div>
 
 <div id="list"></div>
@@ -256,16 +259,36 @@ function toNum(x){
 }
 function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
 
-// ✅ reliable age in MINUTES (ts-based). If ts missing, fallback to ageMin.
-function ageMinNow(x){
-  const ts = x?.ts || x?.timestamp || x?.createdAt;
-  if(ts){
-    const t = new Date(ts).getTime();
-    if(!Number.isNaN(t)){
-      return (Date.now() - t) / 60000;
-    }
+/* -------------------- TIME PARSING (FIX) -------------------- */
+// Robust timestamp parsing: supports ISO strings, ms epoch, seconds epoch.
+function parseTsToMs(ts){
+  if(ts === null || ts === undefined) return null;
+
+  if(typeof ts === "number" && Number.isFinite(ts)){
+    // seconds vs ms
+    return ts < 1e12 ? ts * 1000 : ts;
   }
-  return toNum(x?.ageMin);
+
+  const s = String(ts).trim();
+  if(!s) return null;
+
+  // numeric string seconds/ms
+  if(/^\d+$/.test(s)){
+    const n = Number(s);
+    if(!Number.isFinite(n)) return null;
+    return n < 1e12 ? n * 1000 : n;
+  }
+
+  // ISO / RFC strings
+  const t = new Date(s).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+// ✅ AGE (Signal age): only trust msg.ts. If missing, return null (don't show fake age).
+function ageMinNow(x){
+  const ms = parseTsToMs(x?.ts);
+  if(ms === null) return null;
+  return (Date.now() - ms) / 60000;
 }
 
 /* -------------------- SCORE DETAILS (existing renderer) -------------------- */
@@ -460,7 +483,7 @@ function scoreV2(msg){
   if(liqUsd !== null) v2Reasons.push(`liqUsd=${liqUsd} (+0)`);
   if(fdv !== null) v2Reasons.push(`fdv=${fdv} (+0)`);
   if(vol24 !== null) v2Reasons.push(`vol24=${vol24} (+0)`);
-  if(ageMin !== null) v2Reasons.push(`ageMin=${ageMin.toFixed(1)} (+0)`);
+  if(ageMin !== null) v2Reasons.push(`signalAgeMin=${ageMin.toFixed(1)} (+0)`);
 
   return { v2Score, stage, tags, action, v2Reasons, confidence };
 }
@@ -552,6 +575,9 @@ function render(){
     const tags = x.v2Tags || [];
     const conf = x.v2Confidence || "Low";
 
+    const ageStr = Number.isFinite(x._ageMin) ? x._ageMin.toFixed(1) : "?";
+    const tsStr = x.ts ? formatTimeZones(x.ts) : "";
+
     return `
       <div class="card">
         <div>
@@ -571,7 +597,7 @@ function render(){
           }).join("")}
         </div>
 
-        <div class="muted">${formatTimeZones(x.ts)} | age: ${Number.isFinite(x._ageMin) ? x._ageMin.toFixed(1) : "?"} min</div>
+        <div class="muted">${tsStr} | Signal age: ${ageStr} min</div>
 
         <div class="kpi">
           <code>liq</code> ${x.liquidityUsd ?? "?"}
@@ -612,7 +638,10 @@ async function loadInitial(){
     const res = await fetch("/api/signals");
     const data = await res.json();
     const raw = data.signals || [];
+
+    // keep only items with usable ts, within age window
     items = raw.map(applyV2).filter(withinAgeWindow);
+
     render();
   }catch(e){
     console.error(e);
