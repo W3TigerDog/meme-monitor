@@ -115,7 +115,7 @@
 
     function tickClocks() {
       clockET.textContent = nowInTZ("America/New_York");        // ET
-      clockMT.textContent = nowInTZ("America/Phoenix");         // MT (Phoenix)
+      clockMT.textContent = nowInTZ("America/Denver");          // MT (Denver)
       clockPT.textContent = nowInTZ("America/Los_Angeles");     // PT
     }
 
@@ -166,7 +166,7 @@
 
     function formatTimeZones(iso) {
       const et  = formatInTZ(iso, "America/New_York", "ET");
-      const mt  = formatInTZ(iso, "America/Phoenix", "MT");
+      const mt  = formatInTZ(iso, "America/Denver", "MT");
       const pt  = formatInTZ(iso, "America/Los_Angeles", "PT");
       const utc = formatUTC(iso);
       return `${et} | ${mt} | ${pt} | ${utc}`;
