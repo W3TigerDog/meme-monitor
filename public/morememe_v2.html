@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Meme Monitor Dashboard</title>
+
+<style>
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+input { padding:8px; }
+.card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
+.muted { color:#666; font-size:12px; }
+.score { font-weight:800; }
+a { word-break: break-all; }
+
+.group { margin-top:8px; padding-top:8px; border-top:1px dashed #e5e5e5; }
+.gtitle { font-size:12px; font-weight:800; margin-bottom:6px; }
+.reasons { margin:0; padding-left:16px; }
+.reasons li { margin:4px 0; display:flex; gap:8px; }
+.pts { font-weight:800; min-width:34px; }
+.pts.pos { color:#0a7; }
+.pts.neg { color:#d33; }
+
+.toggle { display:flex; align-items:center; gap:6px; }
+.small { width:70px; }
+
+.clockbar {
+  margin:10px 0 14px;
+  padding:10px 12px;
+  border:1px solid #eee;
+  border-radius:10px;
+  background:#fafafa;
+  display:flex;
+  gap:14px;
+}
+.clk {
+  display:flex;
+  gap:8px;
+  padding:6px 10px;
+  border:1px dashed #ddd;
+  border-radius:10px;
+  background:#fff;
+}
+.clk .label { font-weight:800; }
+.clk .time { font-variant-numeric: tabular-nums; }
+
+.badgeRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+.badge{
+  font-size:12px;
+  border:1px solid #eee;
+  background:#fafafa;
+  padding:4px 8px;
+  border-radius:999px;
+}
+.badge.strong{ border-color:#bfe7d7; background:#e9fff6; }
+.badge.warn{ border-color:#ffd7a6; background:#fff3e1; }
+.badge.danger{ border-color:#ffb3b3; background:#ffecec; }
+</style>
+</head>
+
+<body>
+
+<h2>🚀 Meme Monitor Dashboard</h2>
+
+<!-- Live Clocks -->
+<div class="clockbar">
+  <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
+  <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
+  <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
+</div>
+
+<div class="row">
+  <label>Min V2 Score:
+    <input id="minScore" type="number" value="5" min="0" max="10">
+  </label>
+
+  <label>Keyword:
+    <input id="kw" placeholder="e.g. dog, pepe">
+  </label>
+
+  <label>Alert V2 Score ≥
+    <input id="alertScore" class="small" type="number" value="7" min="0" max="10">
+  </label>
+
+  <label class="toggle">
+    <input id="soundOn" type="checkbox" checked>
+    Sound Alert
+  </label>
+
+  <button id="clear">Clear</button>
+  <span class="muted" id="status">Connecting...</span>
+</div>
+
+<div class="muted" style="margin-top:6px;">
+Click anywhere once to enable sound alerts.
+</div>
+
+<div id="list"></div>
+
+<script>
+
+/* -------------------- GLOBAL -------------------- */
+
+const list = document.getElementById("list");
+const minScoreEl = document.getElementById("minScore");
+const kwEl = document.getElementById("kw");
+const statusEl = document.getElementById("status");
+const clearBtn = document.getElementById("clear");
+const alertScoreEl = document.getElementById("alertScore");
+const soundOnEl = document.getElementById("soundOn");
+
+let items = [];
+
+/* -------------------- LIVE CLOCKS -------------------- */
+
+function nowInTZ(tz) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date());
+}
+
+function tickClocks() {
+  document.getElementById("clockET").textContent = nowInTZ("America/New_York");
+  document.getElementById("clockMT").textContent = nowInTZ("America/Phoenix");
+  document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
+}
+
+tickClocks();
+setInterval(tickClocks, 1000);
+
+/* -------------------- TIME FORMAT -------------------- */
+
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function formatUTC(iso){
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
+}
+
+function formatInTZ(iso, tz, label){
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-CA",{
+    timeZone:tz,
+    year:"numeric",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit",
+    hour12:false
+  }).formatToParts(d);
+
+  const get = t => parts.find(p=>p.type===t)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
+}
+
+function formatTimeZones(iso){
+  return [
+    formatInTZ(iso,"America/New_York","ET"),
+    formatInTZ(iso,"America/Phoenix","MT"),
+    formatInTZ(iso,"America/Los_Angeles","PT"),
+    formatUTC(iso)
+  ].join(" | ");
+}
+
+/* -------------------- SOUND -------------------- */
+
+let audioUnlocked=false;
+let audioCtx=null;
+
+window.addEventListener("click",()=>{
+  if(audioUnlocked) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  audioCtx=new Ctx();
+  audioCtx.resume();
+  audioUnlocked=true;
+},{once:true});
+
+function beepOnce(){
+  if(!audioUnlocked || !audioCtx) return;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.type="square";
+  osc.frequency.value=880;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const t=audioCtx.currentTime;
+  gain.gain.setValueAtTime(0.001,t);
+  gain.gain.exponentialRampToValueAtTime(0.3,t+0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+  osc.start(t);
+  osc.stop(t+0.21);
+}
+
+async function beepTimes(n){
+  for(let i=0;i<n;i++){
+    beepOnce();
+    await new Promise(r=>setTimeout(r,220));
+  }
+}
+
+function tryBeep(v2Score){
+  if(!soundOnEl.checked) return;
+  const threshold=Number(alertScoreEl.value||0);
+  if(v2Score<threshold) return;
+  const n=Math.min(5,1+(v2Score-threshold));
+  beepTimes(n);
+}
+
+/* -------------------- SCORE DETAILS (existing renderer) -------------------- */
+
+function parseReasonItem(r){
+  const s = String(r ?? "");
+  const m = s.match(/\(([-+]\d+)\)/); // (+1) / (-2)
+  const pts = m ? Number(m[1]) : 0;
+  const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+  return { pts, text };
+}
+
+function groupReasons(reasons){
+  const base = [];
+  const momentum = [];
+  const risk = [];
+
+  for(const r of (reasons || [])){
+    const item = parseReasonItem(r);
+
+    // Negative points -> Risk
+    if(item.pts < 0){
+      risk.push(item);
+      continue;
+    }
+
+    // Momentum tags: liq+ / px+
+    if(/^(liq\+|px\+)/i.test(item.text)){
+      momentum.push(item);
+      continue;
+    }
+
+    base.push(item);
+  }
+
+  base.sort((a,b)=>b.pts-a.pts);
+  momentum.sort((a,b)=>b.pts-a.pts);
+  risk.sort((a,b)=>a.pts-b.pts);
+
+  return { base, momentum, risk };
+}
+
+function sumPts(arr){
+  return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
+}
+
+function renderReasonList(arr){
+  if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
+  return `
+    <ul class="reasons">
+      ${arr.map(it => `
+        <li>
+          <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+          <span>${it.text}</span>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
+/* -------------------- V2 HELPERS -------------------- */
+
+function toNum(x){
+  if(x === null || x === undefined) return null;
+  if(typeof x === "number") return Number.isFinite(x) ? x : null;
+  const s = String(x).trim();
+  if(!s) return null;
+  // remove commas, $ and non-numeric (keep dot and minus)
+  const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+
+// Try to extract useful signals from the backend "reasons" text.
+// This makes v2 work even if your API doesn't explicitly send buys/sells/makers/px changes.
+function extractFromReasons(reasons){
+  const out = {
+    liqPct3m: null,   // e.g. 136 (from "liq+136%/3m")
+    pxPct1m: null,    // e.g. 27 (from "px+27%/1m")
+    pxPct5m: null,
+    buys5m_ge_sells5m: false,
+    buys5m_le_sells5m: false,
+  };
+
+  for(const r of (reasons || [])){
+    const { text } = parseReasonItem(r);
+
+    // liq+136%/3m
+    let m = text.match(/^liq\+(\d+(?:\.\d+)?)%\s*\/\s*3m/i);
+    if(m) out.liqPct3m = Number(m[1]);
+
+    // px+27%/1m
+    m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*1m/i);
+    if(m) out.pxPct1m = Number(m[1]);
+
+    // px+??%/5m (if you ever add it)
+    m = text.match(/^px\+(\d+(?:\.\d+)?)%\s*\/\s*5m/i);
+    if(m) out.pxPct5m = Number(m[1]);
+
+    if(/buys5m\s*>=\s*sells5m/i.test(text)) out.buys5m_ge_sells5m = true;
+    if(/buys5m\s*<=\s*sells5m/i.test(text)) out.buys5m_le_sells5m = true;
+  }
+
+  return out;
+}
+
+/* -------------------- V2 SCORING -------------------- */
+/*
+  v2: 0–10 points (5 modules x 0–2)
+  Output: {v2Score, stage, tags[], action, v2Reasons[]}
+*/
+function scoreV2(msg){
+  const reasons = [];
+  const tags = [];
+
+  const ageMin = toNum(msg.ageMin);
+  const liqUsd = toNum(msg.liquidityUsd);
+  const fdv    = toNum(msg.fdv);
+  const vol24  = toNum(msg.volume24h);
+
+  const makers = toNum(msg.makers) ?? toNum(msg.makerCount) ?? null;
+  const buys   = toNum(msg.buys) ?? toNum(msg.buyTxns) ?? null;
+  const sells  = toNum(msg.sells) ?? toNum(msg.sellTxns) ?? null;
+  const buyVol = toNum(msg.buyVolume) ?? null;
+  const sellVol= toNum(msg.sellVolume) ?? null;
+
+  // if missing, infer from text reasons
+  const rx = extractFromReasons(msg.reasons || []);
+  const px1m = rx.pxPct1m;
+  const px5m = rx.pxPct5m;
+
+  // --- Hard Filter (Stage 0) ---
+  if(liqUsd !== null && liqUsd < 5000){
+    tags.push("Illiquid Microcap");
+    reasons.push("Liquidity < $5k (0)");
+  }
+
+  // Module A: Liquidity Quality (0–2)
+  let A = 0;
+  if(liqUsd !== null){
+    if(liqUsd >= 25000){ A = 2; reasons.push("liq ≥ $25k (+2)"); }
+    else if(liqUsd >= 10000){ A = 1; reasons.push("liq $10k–$25k (+1)"); }
+    else { A = 0; reasons.push("liq < $10k (0)"); }
+  } else {
+    reasons.push("liq unknown (0)");
+  }
+
+  // Module B: Participation / 分散度 (0–2)
+  // Prefer makers if provided; otherwise use a weak proxy from vol24 (better than nothing).
+  let B = 0;
+  if(makers !== null){
+    if(makers >= 300){ B = 2; reasons.push("makers ≥ 300 (+2)"); }
+    else if(makers >= 80){ B = 1; reasons.push("makers 80–299 (+1)"); }
+    else { B = 0; reasons.push("makers < 80 (0)"); }
+  } else {
+    // Proxy: vol24 very low -> likely not enough participation
+    if(vol24 !== null && vol24 >= 50000){ B = 1; reasons.push("proxy: vol24 high → participation (+1)"); }
+    else { B = 0; reasons.push("makers unknown (0)"); }
+  }
+
+  // Module C: Orderflow / 买卖结构 (0–2)
+  let C = 0;
+  if(buys !== null && sells !== null && sells > 0){
+    const ratio = buys / sells;
+    if(ratio >= 1.5 && (buyVol === null || sellVol === null || buyVol > sellVol)){
+      C = 2; reasons.push("buys/sells ≥ 1.5 & buyVol>sellVol (+2)");
+    } else if(ratio >= 1.1){
+      C = 1; reasons.push("buys/sells 1.1–1.5 (+1)");
+    } else {
+      C = 0; reasons.push("buys/sells ≤ 1.1 (0)");
+    }
+  } else if(rx.buys5m_ge_sells5m){
+    C = 1; reasons.push("buys5m ≥ sells5m (+1)");
+  } else if(rx.buys5m_le_sells5m){
+    C = 0; reasons.push("buys5m ≤ sells5m (0)");
+  } else {
+    reasons.push("orderflow unknown (0)");
+  }
+
+  // Module D: Volume Energy / 交易能量 (0–2)
+  // If you later add vol5m/vol15m fields, this will automatically use them.
+  const vol5m = toNum(msg.volume5m) ?? null;
+  const vol15m = toNum(msg.volume15m) ?? null;
+
+  let D = 0;
+  if(vol5m !== null){
+    if(vol5m >= 50000){ D = 2; reasons.push("vol5m ≥ $50k (+2)"); }
+    else if(vol5m >= 15000){ D = 1; reasons.push("vol5m $15k–$50k (+1)"); }
+    else { D = 0; reasons.push("vol5m < $15k (0)"); }
+  } else if(vol15m !== null){
+    if(vol15m >= 120000){ D = 2; reasons.push("vol15m ≥ $120k (+2)"); }
+    else if(vol15m >= 40000){ D = 1; reasons.push("vol15m $40k–$120k (+1)"); }
+    else { D = 0; reasons.push("vol15m low (0)"); }
+  } else if(vol24 !== null){
+    // rough fallback for your current schema
+    if(vol24 >= 200000){ D = 2; reasons.push("proxy: vol24 very high (+2)"); }
+    else if(vol24 >= 50000){ D = 1; reasons.push("proxy: vol24 high (+1)"); }
+    else { D = 0; reasons.push("proxy: vol24 low (0)"); }
+  } else {
+    reasons.push("volume unknown (0)");
+  }
+
+  // Module E: Price Structure / 价格结构 (0–2) + Tags
+  let E = 0;
+
+  // FOMO Spike tag logic
+  const fomoSpike = (px1m !== null && px1m > 25) || (px5m !== null && px5m > 60);
+  if(fomoSpike){
+    tags.push("FOMO Spike");
+    E = 0;
+    if(px1m !== null) reasons.push(`px+${px1m}%/1m (FOMO, 0)`);
+    else reasons.push("price spike (FOMO, 0)");
+  } else {
+    // Good zone: +5% to +25% (prefer)
+    const pxRef = (px5m !== null ? px5m : px1m);
+    if(pxRef === null){
+      E = 1; // neutral if we can't see px change
+      reasons.push("px change unknown (+1)");
+    } else if(pxRef >= 5 && pxRef <= 25){
+      E = 2; reasons.push("px in +5%~+25% zone (+2)");
+    } else if(pxRef > 25 && pxRef <= 60){
+      E = 1; reasons.push("px overheat +25%~+60% (+1)");
+    } else {
+      E = 1; reasons.push("px neutral (+1)");
+    }
+  }
+
+  // Total score 0–10
+  let v2Score = clamp(A + B + C + D + E, 0, 10);
+
+  // Stage decision
+  let stage = "Unknown";
+  let action = "Watch";
+
+  // Stage 0 (illiquid) override
+  const isIlliquid = (liqUsd !== null && liqUsd < 5000);
+  if(isIlliquid){
+    stage = "Stage 0 — Illiquid";
+    action = "Avoid";
+    // Make sure stage0 doesn't accidentally look "good"
+    v2Score = Math.min(v2Score, 2);
+    reasons.unshift("Stage 0 filter: illiquid microcap (-)");
+  } else {
+    // Otherwise infer by age + score + tags
+    const hasDistTag = tags.includes("Profit Distribution");
+    if(ageMin !== null && ageMin <= 10 && v2Score >= 5 && !tags.includes("FOMO Spike")){
+      stage = "Stage 1 — Launch";
+      action = "Small Entry / Watch Pullback";
+    } else if(ageMin !== null && ageMin <= 60 && v2Score >= 6 && !hasDistTag){
+      stage = "Stage 2 — Expansion";
+      action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Pullback / Breakout";
+    } else if(v2Score >= 6 && (tags.includes("FOMO Spike") || hasDistTag || (buys !== null && sells !== null && buys <= sells))){
+      stage = "Stage 3 — Distribution";
+      action = "Avoid Chasing / Wait Deep Pullback";
+    } else if(v2Score <= 4){
+      stage = "Stage 4 — Decay";
+      action = "Avoid";
+    } else {
+      stage = "Watch";
+      action = tags.includes("FOMO Spike") ? "Wait Pullback" : "Watch";
+    }
+  }
+
+  // Build v2 reasons with "(+n)" formatting so your existing UI groups them.
+  // Put the module headers into base reasons; momentum stays for liq+/px+ style.
+  // We'll keep it simple: all module explanations as base, and any "liq+.. / px+.." from rx as momentum line items.
+  const v2Reasons = [];
+
+  // Module lines
+  v2Reasons.push(`Liquidity Quality: ${A}/2 (+${A})`);
+  v2Reasons.push(`Participation: ${B}/2 (+${B})`);
+  v2Reasons.push(`Orderflow: ${C}/2 (+${C})`);
+  v2Reasons.push(`Volume Energy: ${D}/2 (+${D})`);
+  v2Reasons.push(`Price Structure: ${E}/2 (+${E})`);
+
+  // Add tag lines (risk-ish but not negative; show as base)
+  if(tags.length){
+    v2Reasons.push(`Tags: ${tags.join(", ")} (+0)`);
+  }
+
+  // Add any original momentum-like raw signals if present in backend reasons (keeps your Momentum group useful)
+  // (these already match your "liq+" / "px+" detection)
+  for(const r of (msg.reasons || [])){
+    const { text, pts } = parseReasonItem(r);
+    if(/^(liq\+|px\+)/i.test(text)){
+      v2Reasons.push(`${text} (+${Math.max(0, pts)})`);
+    }
+  }
+
+  // Add a few plain explanations (still parseable)
+  // We append them with (+0) so they show up but don't change totals.
+  if(liqUsd !== null) v2Reasons.push(`liqUsd=${liqUsd} (+0)`);
+  if(fdv !== null) v2Reasons.push(`fdv=${fdv} (+0)`);
+  if(vol24 !== null) v2Reasons.push(`vol24=${vol24} (+0)`);
+  if(ageMin !== null) v2Reasons.push(`ageMin=${ageMin.toFixed(1)} (+0)`);
+
+  return { v2Score, stage, tags, action, v2Reasons };
+}
+
+/* -------------------- APPLY V2 TO MESSAGES -------------------- */
+
+function applyV2(msg){
+  const v2 = scoreV2(msg);
+  return {
+    ...msg,
+    v2Score: v2.v2Score,
+    v2Stage: v2.stage,
+    v2Tags: v2.tags,
+    v2Action: v2.action,
+    v2Reasons: v2.v2Reasons
+  };
+}
+
+/* -------------------- RENDER -------------------- */
+
+function badgeClassForStage(stage){
+  if(!stage) return "";
+  if(stage.includes("Stage 0") || stage.includes("Stage 4")) return "danger";
+  if(stage.includes("Stage 3")) return "warn";
+  if(stage.includes("Stage 1") || stage.includes("Stage 2")) return "strong";
+  return "";
+}
+
+function render(){
+  const minScore=Number(minScoreEl.value||0);
+  const kw=(kwEl.value||"").toLowerCase().trim();
+
+  const filtered=items.filter(x=>{
+    const s = Number(x.v2Score ?? x.score ?? 0);
+    if(s < minScore) return false;
+    if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
+    return true;
+  });
+
+  list.innerHTML=filtered.map(x=>{
+    const reasons = x.v2Reasons || [];
+    const g = groupReasons(reasons);
+
+    const baseSum = sumPts(g.base);
+    const momSum  = sumPts(g.momentum);
+    const riskSum = sumPts(g.risk);
+
+    const v2Score = Number(x.v2Score ?? 0);
+    const stage = x.v2Stage || "Unknown";
+    const action = x.v2Action || "Watch";
+    const tags = x.v2Tags || [];
+
+    return `
+      <div class="card">
+        <div>
+          <span class="score">V2 Score ${v2Score}</span>
+          — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol||""}
+        </div>
+
+        <div class="badgeRow">
+          <span class="badge ${badgeClassForStage(stage)}">${stage}</span>
+          <span class="badge ${action.includes("Avoid") ? "danger" : action.includes("Wait") ? "warn" : "strong"}">Action: ${action}</span>
+          ${tags.map(t => `<span class="badge ${t.includes("FOMO") ? "warn" : t.includes("Illiquid") ? "danger" : "warn"}">${t}</span>`).join("")}
+        </div>
+
+        <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1)} min</div>
+        <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
+
+        <div class="group">
+          <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
+          ${renderReasonList(g.base)}
+        </div>
+
+        <div class="group">
+          <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
+          ${renderReasonList(g.momentum)}
+        </div>
+
+        <div class="group">
+          <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
+          ${renderReasonList(g.risk)}
+        </div>
+
+        <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
+      </div>
+    `;
+  }).join("");
+}
+
+clearBtn.onclick=()=>{ items=[]; render(); };
+minScoreEl.oninput=render;
+kwEl.oninput=render;
+
+/* -------------------- API -------------------- */
+
+async function loadInitial(){
+  const res=await fetch("/api/signals");
+  const data=await res.json();
+  const raw = data.signals || [];
+  items = raw.map(applyV2);
+  render();
+}
+
+loadInitial();
+
+const es=new EventSource("/events");
+
+es.onopen=()=>statusEl.textContent="Connected (Live)";
+es.onerror=()=>statusEl.textContent="Reconnecting...";
+
+es.onmessage=(ev)=>{
+  const msg=JSON.parse(ev.data);
+  if(!msg?.tokenSymbol) return;
+
+  const withV2 = applyV2(msg);
+
+  items.unshift(withV2);
+  items=items.slice(0,200);
+  render();
+  tryBeep(withV2.v2Score ?? 0);
+};
+
+</script>
+</body>
+</html>
