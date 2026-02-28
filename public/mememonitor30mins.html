@@ -76,7 +76,8 @@ a { word-break: break-all; }
 
 <body>
 
-<h2>🚀 Meme Monitor Dashboard (30 minutes)</h2>
+<!-- ✅ changed to 60 minutes -->
+<h2>🚀 Meme Monitor Dashboard (60 minutes)</h2>
 
 <!-- Live Clocks -->
 <div class="clockbar">
@@ -94,8 +95,9 @@ a { word-break: break-all; }
     <input id="kw" placeholder="e.g. dog, pepe">
   </label>
 
+  <!-- ✅ default value changed to 60 -->
   <label>Age Window (minutes):
-    <input id="ageWindow" class="small" type="number" value="30" min="1" max="240">
+    <input id="ageWindow" class="small" type="number" value="60" min="1" max="240">
   </label>
 
   <label>Alert V2 Score ≥
@@ -115,8 +117,9 @@ a { word-break: break-all; }
 Click anywhere once to enable sound alerts.
 </div>
 
+<!-- ✅ default label changed to 60 -->
 <div class="muted" style="margin-top:6px;">
-Now watching: <b>new memes published within <span id="ageWindowLabel">30</span> minutes</b>
+Now watching: <b>new memes published within <span id="ageWindowLabel">60</span> minutes</b>
 </div>
 
 <div id="list"></div>
@@ -134,10 +137,10 @@ const soundOnEl = document.getElementById("soundOn");
 const ageWindowEl = document.getElementById("ageWindow");
 const ageWindowLabel = document.getElementById("ageWindowLabel");
 
-// WATCH WINDOW: 30 min by default (user can change)
+// ✅ WATCH WINDOW: 60 min by default (user can change)
 function getAgeMax(){
-  const v = Number(ageWindowEl.value || 30);
-  return Number.isFinite(v) ? Math.max(1, v) : 30;
+  const v = Number(ageWindowEl.value || 60);
+  return Number.isFinite(v) ? Math.max(1, v) : 60;
 }
 
 let items = [];
@@ -490,7 +493,7 @@ function applyV2(msg){
   };
 }
 
-/* -------------------- AGE WINDOW FILTER (NEW) -------------------- */
+/* -------------------- AGE WINDOW FILTER -------------------- */
 function withinAgeWindow(x){
   const ageMax = getAgeMax();
   const age = toNum(x.ageMin);
@@ -536,7 +539,7 @@ function render(){
 
     const age = toNum(x.ageMin);
     if(age === null) return false;
-    if(age > ageMax) return false; // ✅ only show new memes within age window
+    if(age > ageMax) return false; // ✅ only show within 60 mins now (default)
 
     return true;
   });
@@ -607,18 +610,13 @@ clearBtn.onclick = ()=>{ items=[]; render(); };
 minScoreEl.oninput = render;
 kwEl.oninput = render;
 
-// ✅ when user changes window, re-filter + prune
-ageWindowEl.oninput = ()=>{
-  ageWindowLabel.textContent = String(getAgeMax());
-  pruneOld();
-};
+ageWindowEl.oninput = ()=>{ pruneOld(); };
 
 /* -------------------- API -------------------- */
 async function loadInitial(){
   const res = await fetch("/api/signals");
   const data = await res.json();
   const raw = data.signals || [];
-  // ✅ keep only within window at load time
   items = raw.map(applyV2).filter(withinAgeWindow);
   render();
 }
@@ -626,8 +624,8 @@ loadInitial();
 
 const es = new EventSource("/events");
 
-es.onopen = ()=> statusEl.textContent = "Connected (Live)";
-es.onerror = ()=> statusEl.textContent = "Reconnecting...";
+es.onopen = ()=> statusEl.textContent = "✅ Connected (Live)";
+es.onerror = ()=> statusEl.textContent = "⚠️ Reconnecting...";
 
 es.onmessage = (ev)=>{
   const msg = JSON.parse(ev.data);
@@ -635,7 +633,7 @@ es.onmessage = (ev)=>{
 
   const withV2 = applyV2(msg);
 
-  // ✅ only accept if within 30 min (or chosen window)
+  // ✅ accept within window (default 60)
   if(!withinAgeWindow(withV2)) return;
 
   items.unshift(withV2);
@@ -645,7 +643,7 @@ es.onmessage = (ev)=>{
   tryBeep(withV2.v2Score ?? 0);
 };
 
-// ✅ auto prune every 20s so list always stays “<= 30 min”
+// ✅ auto prune every 20s so list always stays “<= 60 min” (default)
 setInterval(pruneOld, 20000);
 </script>
 </body>

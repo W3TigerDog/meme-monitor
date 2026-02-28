@@ -3,25 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Meme Monitor Dashboard (10 minutes)</title>
+  <title>Meme Monitor Dashboard</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; background:#fafafa; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; }
     .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
     input { padding:8px; }
-    button { padding:8px 12px; }
-    .card { border:1px solid #e5e5e5; border-radius:14px; padding:14px; margin:12px 0; background:#fff; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px; margin:10px 0; }
     .muted { color:#666; font-size: 12px; }
-    .score { font-weight:900; }
+    .score { font-weight:700; }
     a { word-break: break-all; }
 
-    .group { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5e5e5; }
-    .gtitle { font-size: 12px; font-weight: 900; color: #333; margin-bottom: 6px; }
+    .group { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e5e5; }
+    .gtitle { font-size: 12px; font-weight: 800; color: #333; margin-bottom: 6px; }
     .reasons { margin: 0; padding-left: 16px; }
     .reasons li { margin: 4px 0; display: flex; gap: 8px; align-items: baseline; }
-    .pts { font-weight: 900; min-width: 36px; display: inline-block; }
+    .pts { font-weight: 800; min-width: 34px; display: inline-block; }
     .pts.pos { color: #0a7; }
     .pts.neg { color: #d33; }
-    .pts.zero { color: #999; }
     .rtext { color: #444; }
 
     .toggle { display:flex; align-items:center; gap:6px; }
@@ -31,8 +29,8 @@
       margin: 10px 0 14px;
       padding: 10px 12px;
       border: 1px solid #eee;
-      border-radius: 12px;
-      background: #fff;
+      border-radius: 10px;
+      background: #fafafa;
       display: flex;
       gap: 14px;
       flex-wrap: wrap;
@@ -44,22 +42,13 @@
       align-items: baseline;
       padding: 6px 10px;
       border: 1px dashed #ddd;
-      border-radius: 999px;
-      background: #fafafa;
-    }
-    .clk .label{ font-weight: 900; }
-    .clk .time{ font-variant-numeric: tabular-nums; }
-
-    .empty{
-      margin-top: 14px;
-      padding: 14px;
-      border: 1px dashed #ddd;
-      border-radius: 14px;
+      border-radius: 10px;
       background: #fff;
     }
+    .clk .label{ font-weight: 800; }
+    .clk .time{ font-variant-numeric: tabular-nums; }
   </style>
 </head>
-
 
 <body>
 
@@ -86,19 +75,16 @@
     Tip: Click anywhere once after opening this page to allow the browser to play alert sounds.
   </div>
 
-  <div class="muted" style="margin-top:6px;">
-    Now watching: <b>new memes published within <span id="ageLabel">10</span> minutes</b>
-  </div>
-
   <div id="list"></div>
 
+  <audio id="beep" preload="auto">
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=" type="audio/wav">
+  </audio>
+
   <script>
-    // ✅ Hard window: only show memes created within last 10 minutes
     const AGE_MAX = 10;
 
     const titleEl = document.getElementById("title");
-    const ageLabel = document.getElementById("ageLabel");
-    ageLabel.textContent = String(AGE_MAX);
     titleEl.textContent = `🚀 New Meme Monitor Dashboard (${AGE_MAX} minutes)`;
 
     const list = document.getElementById("list");
@@ -143,7 +129,6 @@
     function formatUTC(iso) {
       if (!iso) return "";
       const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return "";
       const y = d.getUTCFullYear();
       const mo = pad2(d.getUTCMonth() + 1);
       const da = pad2(d.getUTCDate());
@@ -156,7 +141,6 @@
     function formatInTZ(iso, tz, label) {
       if (!iso) return "";
       const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return "";
 
       const parts = new Intl.DateTimeFormat("en-CA", {
         timeZone: tz,
@@ -185,18 +169,9 @@
       const mt  = formatInTZ(iso, "America/Denver", "MT");
       const pt  = formatInTZ(iso, "America/Los_Angeles", "PT");
       const utc = formatUTC(iso);
-      return [et, mt, pt, utc].filter(Boolean).join(" | ");
+      return `${et} | ${mt} | ${pt} | ${utc}`;
     }
     // =====================================
-
-    // ✅ Compute live age (minutes) from ts (more reliable than server-sent ageMin)
-    function ageMinNow(x) {
-      const ts = x?.ts || x?.timestamp || x?.createdAt;
-      if (!ts) return (x?.ageMin == null ? null : Number(x.ageMin));
-      const t = new Date(ts).getTime();
-      if (Number.isNaN(t)) return (x?.ageMin == null ? null : Number(x.ageMin));
-      return (Date.now() - t) / 60000;
-    }
 
     // ===== Sound alerts (Web Audio API) =====
     let audioUnlocked = false;
@@ -208,6 +183,7 @@
       audioCtx = new Ctx();
       audioCtx.resume?.();
       audioUnlocked = true;
+      console.log("Audio unlocked");
     }
 
     window.addEventListener("click", unlockAudio, { once: true });
@@ -265,7 +241,7 @@
     // ======================================
 
     function parseReasonItem(r) {
-      const s = String(r ?? "");
+      const s = String(r);
       const m = s.match(/\(([-+]\d+)\)/);
       const pts = m ? Number(m[1]) : 0;
       const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
@@ -280,7 +256,7 @@
       for (const r of (reasons || [])) {
         const item = parseReasonItem(r);
 
-        if (item.pts < 0) {
+        if (item.pts < 0 || /\(-\d+\)/.test(String(r))) {
           risk.push(item);
           continue;
         }
@@ -304,7 +280,7 @@
         <ul class="reasons">
           ${items.map(it => `
             <li>
-              <span class="pts ${it.pts < 0 ? "neg" : it.pts === 0 ? "zero" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
+              <span class="pts ${it.pts < 0 ? "neg" : "pos"}">${it.pts > 0 ? "+" : ""}${it.pts}</span>
               <span class="rtext">${it.text}</span>
             </li>
           `).join("")}
@@ -320,32 +296,16 @@
       const minScore = Number(minScoreEl.value || 0);
       const kw = (kwEl.value || "").toLowerCase().trim();
 
-      // ✅ update ages, drop old ones
-      const ageFiltered = items
-        .map(x => ({ ...x, _age: ageMinNow(x) }))
-        .filter(x => x._age != null && Number.isFinite(x._age) && x._age <= AGE_MAX);
-
-      const filtered = ageFiltered.filter(x => {
+      const filtered = items.filter(x => {
         if (!x || typeof x !== "object" || !x.tokenSymbol) return false;
-        if (Number(x.score) < minScore) return false;
+        if (x.score < minScore) return false;
         if (kw && !(x.tokenSymbol || "").toLowerCase().includes(kw)) return false;
+
+        if (x.ageMin == null) return false;
+        if (Number(x.ageMin) > AGE_MAX) return false;
+
         return true;
       });
-
-      // ✅ sort newest first, then higher score
-      filtered.sort((a, b) => (a._age - b._age) || (Number(b.score) - Number(a.score)));
-
-      if (!filtered.length) {
-        list.innerHTML = `
-          <div class="empty">
-            <div style="font-weight:900;">No matches in the last ${AGE_MAX} minutes</div>
-            <div class="muted" style="margin-top:6px;">
-              Try lowering <b>Min Score</b>, clearing <b>Keyword</b>, or wait for new launches.
-            </div>
-          </div>
-        `;
-        return;
-      }
 
       list.innerHTML = filtered.map(x => {
         const g = groupReasons(x.reasons || []);
@@ -356,7 +316,7 @@
         return `
           <div class="card">
             <div><span class="score">Score ${x.score}</span> — <b>${x.tokenSymbol || "?"}</b> / ${x.quoteSymbol || "?"}</div>
-            <div class="muted">${formatTimeZones(x.ts)} | age: ${x._age.toFixed(1)} min</div>
+            <div class="muted">${formatTimeZones(x.ts)} | age: ${x.ageMin?.toFixed?.(1) ?? x.ageMin} min</div>
             <div>liq: ${x.liquidityUsd ?? "?"} | fdv: ${x.fdv ?? "?"} | vol24: ${x.volume24h ?? "?"}</div>
 
             <div class="muted">
@@ -374,7 +334,7 @@
               </div>
             </div>
 
-            <div><a href="${x.url}" target="_blank" rel="noopener">Open DexScreener</a></div>
+            <div><a href="${x.url}" target="_blank">Open DexScreener</a></div>
           </div>
         `;
       }).join("");
@@ -383,51 +343,28 @@
     clearBtn.onclick = () => { items = []; render(); };
 
     async function loadInitial() {
-      try {
-        const res = await fetch("/api/signals");
-        const data = await res.json();
-        items = (data.signals || []).slice(0, 200);
-        render();
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = "⚠️ Failed to load /api/signals";
-      }
+      const res = await fetch("/api/signals");
+      const data = await res.json();
+      items = data.signals || [];
+      render();
     }
 
     loadInitial();
 
-    let es = new EventSource("/events");
+    const es = new EventSource("/events");
     es.onopen = () => statusEl.textContent = "✅ Connected (live)";
     es.onerror = () => statusEl.textContent = "⚠️ Disconnected, retrying…";
     es.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
+      const msg = JSON.parse(ev.data);
+      if (!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
 
-        // ✅ reject old ones immediately (using ts if possible)
-        const a = ageMinNow(msg);
-        if (a == null || !Number.isFinite(a) || a > AGE_MAX) return;
+      items.unshift(msg);
+      items = items.slice(0, 200);
+      render();
 
-        items.unshift(msg);
-        items = items.slice(0, 200);
-        render();
-
-        tryBeep(msg.score);
-      } catch (e) {
-        console.error("Bad SSE message:", e);
-      }
+      tryBeep(msg.score);
     };
 
-    // ✅ prune + refresh UI so age counts down even if no new events
-    setInterval(() => {
-      items = items.filter(x => {
-        const a = ageMinNow(x);
-        return a != null && Number.isFinite(a) && a <= AGE_MAX;
-      });
-      render();
-    }, 20000);
-
-    // inputs
     minScoreEl.oninput = render;
     kwEl.oninput = render;
   </script>
