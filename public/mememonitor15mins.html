@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meme Monitor Dashboard</title>
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto; margin: 16px; background:#fafafa; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    input { padding:8px; }
+    button { padding:8px 12px; }
+    .card { border:1px solid #e5e5e5; border-radius:14px; padding:14px; margin:12px 0; background:#fff; }
+    .muted { color:#666; font-size:12px; }
+    .score { font-weight:900; }
+    a { word-break: break-all; }
+
+    .group { margin-top:10px; padding-top:10px; border-top:1px dashed #e5e5e5; }
+    .gtitle { font-size:12px; font-weight:900; margin-bottom:6px; color:#333; }
+    .reasons { margin:0; padding-left:16px; }
+    .reasons li { margin:4px 0; display:flex; gap:8px; align-items: baseline; }
+    .pts { font-weight:900; min-width:36px; }
+    .pts.pos { color:#0a7; }
+    .pts.neg { color:#d33; }
+    .pts.zero { color:#999; }
+    .rtext { color:#444; }
+
+    .toggle { display:flex; align-items:center; gap:6px; }
+    .small { width:80px; }
+
+    .clockbar {
+      margin:10px 0 14px;
+      padding:10px 12px;
+      border:1px solid #eee;
+      border-radius:12px;
+      background:#fff;
+      display:flex;
+      gap:14px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .clk {
+      display:flex;
+      gap:8px;
+      padding:6px 10px;
+      border:1px dashed #ddd;
+      border-radius:999px;
+      background:#fafafa;
+    }
+    .clk .label { font-weight:900; }
+    .clk .time { font-variant-numeric: tabular-nums; }
+
+    .empty{
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px dashed #ddd;
+      border-radius: 14px;
+      background: #fff;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2 id="title" style="color:gold;"></h2>
+
+  <!-- Live Clocks -->
+  <div class="clockbar">
+    <div class="clk"><span class="label">ET</span><span id="clockET" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">MT</span><span id="clockMT" class="time muted">--:--:--</span></div>
+    <div class="clk"><span class="label">PT</span><span id="clockPT" class="time muted">--:--:--</span></div>
+  </div>
+
+  <div class="row">
+    <label>Min Score:
+      <input id="minScore" type="number" value="3" min="0" max="10">
+    </label>
+
+    <label>Keyword:
+      <input id="kw" placeholder="e.g. dog, cat, pepe">
+    </label>
+
+    <label>Alert Score ≥
+      <input id="alertScore" class="small" type="number" value="5" min="0" max="10">
+    </label>
+
+    <label class="toggle">
+      <input id="soundOn" type="checkbox" checked>
+      Sound
+    </label>
+
+    <button id="clear">Clear</button>
+    <span class="muted" id="status">Connecting…</span>
+  </div>
+
+  <div class="muted" style="margin-top:6px;">
+    Tip: Click anywhere once after opening this page to allow the browser to play alert sounds.
+  </div>
+
+  <div id="list"></div>
+
+<script>
+/* ===================== CONFIG ===================== */
+const MINUTES = 15; // ✅ watch window = 15 minutes
+/* ================================================== */
+
+const titleEl = document.getElementById("title");
+titleEl.textContent = `🚀 New Meme Monitor Dashboard (${MINUTES} minutes)`;
+
+/* -------------------- GLOBAL -------------------- */
+const list = document.getElementById("list");
+const minScoreEl = document.getElementById("minScore");
+const kwEl = document.getElementById("kw");
+const statusEl = document.getElementById("status");
+const clearBtn = document.getElementById("clear");
+const alertScoreEl = document.getElementById("alertScore");
+const soundOnEl = document.getElementById("soundOn");
+
+let items = [];
+
+/* -------------------- LIVE CLOCKS -------------------- */
+function nowInTZ(tz) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date());
+}
+function tickClocks() {
+  document.getElementById("clockET").textContent = nowInTZ("America/New_York");
+  document.getElementById("clockMT").textContent = nowInTZ("America/Denver");
+  document.getElementById("clockPT").textContent = nowInTZ("America/Los_Angeles");
+}
+tickClocks();
+setInterval(tickClocks, 1000);
+
+/* -------------------- TIME FORMAT (ET|MT|PT|UTC) -------------------- */
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function formatUTC(iso){
+  if(!iso) return "";
+  const d = new Date(iso);
+  if(Number.isNaN(d.getTime())) return "";
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} UTC`;
+}
+
+function formatInTZ(iso, tz, label){
+  if(!iso) return "";
+  const d = new Date(iso);
+  if(Number.isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA",{
+    timeZone:tz,
+    year:"numeric",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    second:"2-digit",
+    hour12:false
+  }).formatToParts(d);
+  const get = t => parts.find(p=>p.type===t)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${label}`;
+}
+
+function formatTimeZones(iso){
+  const et  = formatInTZ(iso,"America/New_York","ET");
+  const mt  = formatInTZ(iso,"America/Denver","MT");
+  const pt  = formatInTZ(iso,"America/Los_Angeles","PT");
+  const utc = formatUTC(iso);
+  return [et, mt, pt, utc].filter(Boolean).join(" | ");
+}
+
+/* -------------------- SOUND (Web Audio API) -------------------- */
+let audioUnlocked=false;
+let audioCtx=null;
+
+function unlockAudio(){
+  if(audioUnlocked) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  audioCtx = new Ctx();
+  audioCtx.resume?.();
+  audioUnlocked = true;
+}
+window.addEventListener("click", unlockAudio, { once: true });
+
+function beepOnce(){
+  if(!audioUnlocked || !audioCtx) return;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.type = "square";
+  osc.frequency.value = 880;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  const t = audioCtx.currentTime;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.3, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+
+  osc.start(t);
+  osc.stop(t + 0.21);
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function beepTimes(n){
+  for(let i=0;i<n;i++){
+    beepOnce();
+    await sleep(220);
+  }
+}
+
+function scoreToBeeps(score, threshold){
+  const s = Number(score);
+  const t = Number(threshold);
+  if(!Number.isFinite(s) || !Number.isFinite(t)) return 0;
+  if(s < t) return 0;
+  return Math.min(5, 1 + (s - t));
+}
+
+function tryBeep(score){
+  if(!soundOnEl.checked) return;
+  if(!audioUnlocked) return;
+
+  const threshold = Number(alertScoreEl.value || 0);
+  const n = scoreToBeeps(score, threshold);
+  if(n > 0) beepTimes(n);
+}
+
+/* -------------------- HELPERS -------------------- */
+function toNum(x){
+  if(x === null || x === undefined) return null;
+  if(typeof x === "number") return Number.isFinite(x) ? x : null;
+  const s = String(x).trim();
+  if(!s) return null;
+  const cleaned = s.replace(/,/g,"").replace(/[^0-9.\-]/g,"");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* -------------------- REASONS -------------------- */
+function parseReasonItem(r){
+  const s = String(r ?? "");
+  const m = s.match(/\(([-+]\d+)\)/);
+  const pts = m ? Number(m[1]) : 0;
+  const text = s.replace(/\s*\(([-+]\d+)\)\s*/g, "").trim();
+  return { pts, text };
+}
+
+function groupReasons(reasons){
+  const base = [];
+  const momentum = [];
+  const risk = [];
+
+  for(const r of (reasons || [])){
+    const item = parseReasonItem(r);
+
+    if(item.pts < 0){
+      risk.push(item);
+      continue;
+    }
+    if(/^(liq\+|px\+)/i.test(item.text)){
+      momentum.push(item);
+      continue;
+    }
+    base.push(item);
+  }
+
+  base.sort((a,b)=>b.pts-a.pts);
+  momentum.sort((a,b)=>b.pts-a.pts);
+  risk.sort((a,b)=>a.pts-b.pts);
+
+  return { base, momentum, risk };
+}
+
+function sumPts(arr){
+  return (arr || []).reduce((acc,it)=>acc + (Number(it.pts) || 0), 0);
+}
+
+function renderReasonList(arr){
+  if(!arr || !arr.length) return `<div class="muted">(none)</div>`;
+  return `
+    <ul class="reasons">
+      ${arr.map(it => `
+        <li>
+          <span class="pts ${it.pts < 0 ? "neg" : it.pts === 0 ? "zero" : "pos"}">
+            ${it.pts > 0 ? "+" : ""}${it.pts}
+          </span>
+          <span class="rtext">${it.text}</span>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
+/* -------------------- FILTERING WINDOW -------------------- */
+/*
+  ✅ 这里按你给的“minutes版本”做法：
+  - 不显示 “age / pair age”
+  - 只用 msg.ageMin 来过滤是否在 MINUTES 内
+  （后端必须提供 ageMin）
+*/
+function withinMinutesWindow(x){
+  const a = toNum(x?.ageMin);
+  if(a === null) return false;
+  return a <= MINUTES;
+}
+
+function pruneOld(){
+  items = items.filter(withinMinutesWindow);
+  render();
+}
+
+/* -------------------- RENDER -------------------- */
+function render(){
+  const minScore = Number(minScoreEl.value || 0);
+  const kw = (kwEl.value || "").toLowerCase().trim();
+
+  const filtered = items.filter(x=>{
+    if(!x || typeof x !== "object" || !x.tokenSymbol) return false;
+
+    const s = toNum(x.score ?? x.v2Score) ?? 0;
+    if(s < minScore) return false;
+
+    if(kw && !(String(x.tokenSymbol||"").toLowerCase().includes(kw))) return false;
+
+    // ✅ only minutes window, based on ageMin
+    if(!withinMinutesWindow(x)) return false;
+
+    return true;
+  });
+
+  // sort: newest first by smaller ageMin (if present), then higher score
+  filtered.sort((a,b)=>{
+    const aa = toNum(a.ageMin) ?? 999999;
+    const bb = toNum(b.ageMin) ?? 999999;
+    if(aa !== bb) return aa - bb;
+    return (toNum(b.score ?? b.v2Score) ?? 0) - (toNum(a.score ?? a.v2Score) ?? 0);
+  });
+
+  if(!filtered.length){
+    list.innerHTML = `
+      <div class="empty">
+        <div style="font-weight:900;">No matches in the last ${MINUTES} minutes</div>
+        <div class="muted" style="margin-top:6px;">
+          Try lowering <b>Min Score</b>, clearing <b>Keyword</b>, or wait for new launches.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  list.innerHTML = filtered.map(x=>{
+    const s = toNum(x.score ?? x.v2Score) ?? 0;
+    const reasons = x.reasons || x.v2Reasons || [];
+    const g = groupReasons(reasons);
+
+    const baseSum = sumPts(g.base);
+    const momSum  = sumPts(g.momentum);
+    const riskSum = sumPts(g.risk);
+
+    return `
+      <div class="card">
+        <div>
+          <span class="score">Score ${s}</span>
+          — <b>${x.tokenSymbol}</b> / ${x.quoteSymbol || "?"}
+        </div>
+
+        <div class="muted">${formatTimeZones(x.ts)}</div>
+
+        <div class="muted">
+          <div class="group">
+            <div class="gtitle">Base (${baseSum >= 0 ? "+" : ""}${baseSum})</div>
+            ${renderReasonList(g.base)}
+          </div>
+          <div class="group">
+            <div class="gtitle">Momentum (${momSum >= 0 ? "+" : ""}${momSum})</div>
+            ${renderReasonList(g.momentum)}
+          </div>
+          <div class="group">
+            <div class="gtitle">Risk (${riskSum >= 0 ? "+" : ""}${riskSum})</div>
+            ${renderReasonList(g.risk)}
+          </div>
+        </div>
+
+        <div style="margin-top:8px;">
+          liq: ${x.liquidityUsd ?? "?"}
+          &nbsp;|&nbsp; fdv: ${x.fdv ?? "?"}
+          &nbsp;|&nbsp; vol24: ${x.volume24h ?? "?"}
+        </div>
+
+        <div style="margin-top:8px;">
+          <a href="${x.url}" target="_blank" rel="noopener">Open DexScreener</a>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+/* -------------------- EVENTS -------------------- */
+clearBtn.onclick = ()=>{ items=[]; render(); };
+minScoreEl.oninput = render;
+kwEl.oninput = render;
+
+/* -------------------- API -------------------- */
+async function loadInitial(){
+  try{
+    const res = await fetch("/api/signals");
+    const data = await res.json();
+    const raw = data.signals || [];
+
+    items = raw.filter(withinMinutesWindow);
+    render();
+  }catch(e){
+    console.error(e);
+    statusEl.textContent = "⚠️ Failed to load /api/signals";
+  }
+}
+loadInitial();
+
+const es = new EventSource("/events");
+es.onopen = ()=> statusEl.textContent = "✅ Connected (live)";
+es.onerror = ()=> statusEl.textContent = "⚠️ Disconnected, retrying…";
+
+es.onmessage = (ev)=>{
+  try{
+    const msg = JSON.parse(ev.data);
+    if(!msg || typeof msg !== "object" || !msg.tokenSymbol) return;
+
+    // ✅ only keep within MINUTES window (ageMin-based)
+    if(!withinMinutesWindow(msg)) return;
+
+    items.unshift(msg);
+    items = items.slice(0, 200);
+
+    render();
+    tryBeep(toNum(msg.score ?? msg.v2Score) ?? 0);
+  }catch(e){
+    console.error("Bad SSE msg:", e);
+  }
+};
+
+// keep within window
+setInterval(pruneOld, 20000);
+</script>
+
+</body>
+</html>
