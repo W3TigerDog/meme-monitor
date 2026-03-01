@@ -129,7 +129,7 @@ Now watching: <b>new memes published within <span id="ageWindowLabel">30</span> 
 </div>
 
 <div class="muted" style="margin-top:6px;">
-<b>Note:</b> Age shown is <b>Signal age</b> (time since your backend emitted the signal). It may differ from DexScreener “pair age”.
+<b>Note:</b> <b>Signal age</b> = time since your backend emitted the signal (<code>ts</code>). <b>Pair age</b> = time since the DEX pair/pool was created (needs your backend to include <code>pairCreatedAt</code>/<code>pairTs</code> field).
 </div>
 
 <div id="list"></div>
@@ -259,36 +259,53 @@ function toNum(x){
 }
 function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
 
-/* -------------------- TIME PARSING (FIX) -------------------- */
+/* -------------------- TIME PARSING -------------------- */
 // Robust timestamp parsing: supports ISO strings, ms epoch, seconds epoch.
 function parseTsToMs(ts){
   if(ts === null || ts === undefined) return null;
 
   if(typeof ts === "number" && Number.isFinite(ts)){
-    // seconds vs ms
-    return ts < 1e12 ? ts * 1000 : ts;
+    return ts < 1e12 ? ts * 1000 : ts; // seconds vs ms
   }
 
   const s = String(ts).trim();
   if(!s) return null;
 
-  // numeric string seconds/ms
   if(/^\d+$/.test(s)){
     const n = Number(s);
     if(!Number.isFinite(n)) return null;
     return n < 1e12 ? n * 1000 : n;
   }
 
-  // ISO / RFC strings
   const t = new Date(s).getTime();
   return Number.isNaN(t) ? null : t;
 }
 
-// ✅ AGE (Signal age): only trust msg.ts. If missing, return null (don't show fake age).
-function ageMinNow(x){
+// ✅ Signal age: only trust msg.ts
+function signalAgeMinNow(x){
   const ms = parseTsToMs(x?.ts);
   if(ms === null) return null;
   return (Date.now() - ms) / 60000;
+}
+
+// ✅ Pair age: expects backend to provide ONE of these fields (best: pairCreatedAt ms/seconds/ISO)
+// - pairCreatedAt
+// - pairTs
+// - pairCreated
+// - pair_created_at
+function pairAgeMinNow(x){
+  const ms =
+    parseTsToMs(x?.pairCreatedAt) ??
+    parseTsToMs(x?.pairTs) ??
+    parseTsToMs(x?.pairCreated) ??
+    parseTsToMs(x?.pair_created_at);
+  if(ms === null) return null;
+  return (Date.now() - ms) / 60000;
+}
+
+// (compat) your previous name used everywhere
+function ageMinNow(x){
+  return signalAgeMinNow(x);
 }
 
 /* -------------------- SCORE DETAILS (existing renderer) -------------------- */
@@ -353,7 +370,7 @@ function extractFromReasons(reasons){
 /* -------------------- V2 SCORING -------------------- */
 function scoreV2(msg){
   const tags = [];
-  const ageMin = ageMinNow(msg);
+  const ageMin = signalAgeMinNow(msg);
   const liqUsd = toNum(msg.liquidityUsd);
   const fdv    = toNum(msg.fdv);
   const vol24  = toNum(msg.volume24h);
@@ -496,7 +513,7 @@ function applyV2(msg){
 /* -------------------- AGE WINDOW FILTER -------------------- */
 function withinAgeWindow(x){
   const ageMax = getAgeMax();
-  const age = ageMinNow(x);
+  const age = signalAgeMinNow(x);
   if(age === null) return false;
   return age <= ageMax;
 }
@@ -504,7 +521,7 @@ function withinAgeWindow(x){
 function pruneOld(){
   const ageMax = getAgeMax();
   items = items.filter(x => {
-    const a = ageMinNow(x);
+    const a = signalAgeMinNow(x);
     return a !== null && a <= ageMax;
   });
   render();
@@ -532,22 +549,26 @@ function render(){
   const ageMax = getAgeMax();
 
   // refresh computed ages for correct display
-  const enriched = items.map(x => ({ ...x, _ageMin: ageMinNow(x) }));
+  const enriched = items.map(x => ({
+    ...x,
+    _signalAgeMin: signalAgeMinNow(x),
+    _pairAgeMin: pairAgeMinNow(x)
+  }));
 
   const filtered = enriched.filter(x=>{
     const s = Number(x.v2Score ?? x.score ?? 0);
     if(s < minScore) return false;
     if(kw && !(x.tokenSymbol||"").toLowerCase().includes(kw)) return false;
 
-    const age = x._ageMin;
+    const age = x._signalAgeMin;
     if(age === null || !Number.isFinite(age)) return false;
     if(age > ageMax) return false;
 
     return true;
   });
 
-  // newest first (smaller age), then higher score
-  filtered.sort((a,b)=> (a._ageMin - b._ageMin) || (Number(b.v2Score||0) - Number(a.v2Score||0)));
+  // newest first (smaller signal age), then higher score
+  filtered.sort((a,b)=> (a._signalAgeMin - b._signalAgeMin) || (Number(b.v2Score||0) - Number(a.v2Score||0)));
 
   if(!filtered.length){
     list.innerHTML = `
@@ -575,7 +596,8 @@ function render(){
     const tags = x.v2Tags || [];
     const conf = x.v2Confidence || "Low";
 
-    const ageStr = Number.isFinite(x._ageMin) ? x._ageMin.toFixed(1) : "?";
+    const sigAgeStr = Number.isFinite(x._signalAgeMin) ? x._signalAgeMin.toFixed(1) : "?";
+    const pairAgeStr = Number.isFinite(x._pairAgeMin) ? x._pairAgeMin.toFixed(1) : "—";
     const tsStr = x.ts ? formatTimeZones(x.ts) : "";
 
     return `
@@ -597,7 +619,7 @@ function render(){
           }).join("")}
         </div>
 
-        <div class="muted">${tsStr} | Signal age: ${ageStr} min</div>
+        <div class="muted">${tsStr} | Signal age: ${sigAgeStr} min | Pair age: ${pairAgeStr} min</div>
 
         <div class="kpi">
           <code>liq</code> ${x.liquidityUsd ?? "?"}
@@ -639,9 +661,7 @@ async function loadInitial(){
     const data = await res.json();
     const raw = data.signals || [];
 
-    // keep only items with usable ts, within age window
     items = raw.map(applyV2).filter(withinAgeWindow);
-
     render();
   }catch(e){
     console.error(e);
