@@ -1,8 +1,15 @@
+// server.js
+
+require("dotenv").config(); // ✅ 让 .env 生效（必须放最顶部）
+
 const express = require("express");
 const path = require("path");
 const { startMonitor } = require("./monitor");
 
 console.log("SERVER BOOT:", new Date().toISOString());
+
+// ✅ 检查是否读到 Helius Key（不建议长期打印完整 key，先调试用）
+console.log("Helius key loaded:", process.env.HELIUS_API_KEY ? "YES" : "NO");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,7 +32,11 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
 
   // 允许 GitHub Pages + 允许本地开发（可选）
-  if (origin === ALLOWED_ORIGIN || origin === "http://localhost:3000" || origin === "http://127.0.0.1:3000") {
+  if (
+    origin === ALLOWED_ORIGIN ||
+    origin === "http://localhost:3000" ||
+    origin === "http://127.0.0.1:3000"
+  ) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
@@ -56,12 +67,16 @@ app.get("/events", (req, res) => {
   res.setHeader("X-Accel-Buffering", "no"); // proxy buffering off
   res.flushHeaders?.();
 
-  res.write(`event: hello\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`);
+  res.write(
+    `event: hello\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`
+  );
 
   clients.add(res);
 
   const keepAlive = setInterval(() => {
-    res.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`);
+    res.write(
+      `event: heartbeat\ndata: ${JSON.stringify({ ts: new Date().toISOString() })}\n\n`
+    );
   }, 25000);
 
   req.on("close", () => {
