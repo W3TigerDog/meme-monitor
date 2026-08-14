@@ -1,6 +1,6 @@
 // server.js
 
-require("dotenv").config(); // ✅ 让 .env 生效（必须放最顶部）
+require("dotenv").config(); // ✅ Load .env variables (must remain at the top)
 
 const express = require("express");
 const path = require("path");
@@ -8,14 +8,14 @@ const { startMonitor } = require("./monitor");
 
 console.log("SERVER BOOT:", new Date().toISOString());
 
-// ✅ 检查是否读到 Helius Key（不建议长期打印完整 key，先调试用）
+// ✅ Check whether the Helius key was loaded (avoid printing the full key outside temporary debugging)
 console.log("Helius key loaded:", process.env.HELIUS_API_KEY ? "YES" : "NO");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = "0.0.0.0";
 
-// ✅ 你的 GitHub Pages 域名（先用这个；如果你之后用别的域名再加）
+// ✅ GitHub Pages domain (add other domains here if needed later)
 const ALLOWED_ORIGIN = "https://w3tigerdog.github.io";
 
 const signals = [];
@@ -27,11 +27,11 @@ function broadcast(signal) {
   for (const res of clients) res.write(msg);
 }
 
-// ✅ CORS（只允许你的 GitHub Pages）
+// ✅ CORS (allow only the configured GitHub Pages domain)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // 允许 GitHub Pages + 允许本地开发（可选）
+  // Allow GitHub Pages and optional local development origins
   if (
     origin === ALLOWED_ORIGIN ||
     origin === "http://localhost:3000" ||
@@ -48,7 +48,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 静态文件（保留不影响）
+// Static files (retained without affecting the API)
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/ping", (req, res) => res.send("pong"));
@@ -86,7 +86,7 @@ app.get("/events", (req, res) => {
   });
 });
 
-// ✅ 先让服务跑起来：monitor 出错也不让进程退出
+// ✅ Keep the service running even if the monitor fails to start
 try {
   startMonitor({
     onSignal: (s) => {

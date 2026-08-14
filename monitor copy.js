@@ -3,7 +3,7 @@ const fs = require("fs");
 
 const SEEN_FILE = "./seen_pairs.json";
 
-// 只用于“高分信号”的去重（避免高分重复弹）
+// Used only to deduplicate high-score signals (avoids duplicate alerts)
 let alerted = new Set();
 
 if (fs.existsSync(SEEN_FILE)) {
@@ -18,7 +18,7 @@ function saveAlerted() {
   fs.writeFileSync(SEEN_FILE, JSON.stringify([...alerted], null, 2));
 }
 
-// ✅ 更稳：检查 HTTP、检查是否 HTML、并在报错里带 head
+// ✅ More robust: validate HTTP status and HTML responses, and include the head in errors
 async function fetchJson(url) {
   const res = await fetch(url, {
     headers: {
@@ -34,7 +34,7 @@ async function fetchJson(url) {
     throw new Error(`HTTP ${res.status} ${res.statusText} | url=${url} | head=${head}`);
   }
 
-  // DexScreener 偶尔会返回 HTML（例如被限流/反爬）
+  // DexScreener may occasionally return HTML (for example, due to rate limiting or bot protection)
   if (text.trim().startsWith("<")) {
     throw new Error(`Non-JSON (HTML) | url=${url} | head=${head}`);
   }
@@ -46,11 +46,11 @@ async function fetchJson(url) {
   }
 }
 
-// ====== 可调参数 ======
-const MIN_SCORE = 0;         // 后端推送下限（建议 0 或 1）
-const DEDUP_SCORE = 5;       // 只有 score>=5 才去重（写 seen_pairs.json）
+// ====== Configurable parameters ======
+const MIN_SCORE = 0;         // Minimum score pushed by the backend (0 or 1 recommended)
+const DEDUP_SCORE = 5;       // Deduplicate only when score >= 5 (written to seen_pairs.json)
 
-// ✅ 放宽：很多 token 的 pairCreatedAt 要么缺失要么“看起来更老”，先放宽到 60 分钟
+// ✅ Relaxed: many tokens have a missing or apparently older pairCreatedAt, so allow up to 60 minutes
 const MAX_AGE_MIN = 60;
 
 const LIQ_80K = 80000;
@@ -58,7 +58,7 @@ const LIQ_50K = 50000;
 const VOL_200K = 200000;
 const VOL_100K = 100000;
 
-// 增速打分阈值
+// Growth-rate scoring thresholds
 const LIQ_1M_PCT_1 = 0.15;
 const LIQ_3M_PCT_2 = 0.40;
 
@@ -68,7 +68,7 @@ const PRICE_3M_PCT_2 = 0.60;
 const HISTORY_WINDOW_MS = 3 * 60 * 1000;
 // ======================
 
-// ====== 内存历史：用于计算增速 ======
+// ====== In-memory history for calculating growth rates ======
 const pairHistory = new Map();
 
 function pushHistory(pairAddr, liqUsd, priceUsd) {
@@ -111,7 +111,7 @@ function scorePair(pair) {
 
   const now = Date.now();
 
-  // ✅ 不再因为缺少 createdAt 直接 -999：给一个“未知年龄”并继续算分
+  // ✅ Do not return -999 when createdAt is missing; use an unknown age and continue scoring
   const createdAt = pair.pairCreatedAt;
   let ageMin = null;
   if (createdAt) {
@@ -139,17 +139,17 @@ function scorePair(pair) {
     );
   }
 
-  // 1) 流动性基础分
+  // 1) Base liquidity score
   if (typeof liq === "number") {
     if (liq >= LIQ_80K) { score += 2; reasons.push("liq>=80k(+2)"); }
     else if (liq >= LIQ_50K) { score += 1; reasons.push("liq>=50k(+1)"); }
     else reasons.push("liq<50k(+0)");
   } else {
-    // ✅ 不直接判死刑：允许继续算其它分（但会是低分）
+    // ✅ Do not reject outright; continue calculating other components (the score will remain low)
     reasons.push("liq_undefined(+0)");
   }
 
-  // 2) 年龄（只有有 createdAt 才算）
+  // 2) Age (calculated only when createdAt is available)
   if (ageMin != null) {
     if (ageMin <= 5) { score += 1; reasons.push("age<=5m(+1)"); }
     else reasons.push("age>5m(+0)");
@@ -157,7 +157,7 @@ function scorePair(pair) {
     reasons.push("age_unknown(+0)");
   }
 
-  // 3) 交易活跃度（24h volume）
+  // 3) Trading activity (24h volume)
   if (typeof vol24 === "number") {
     if (vol24 >= VOL_200K) { score += 2; reasons.push("vol24>=200k(+2)"); }
     else if (vol24 >= VOL_100K) { score += 1; reasons.push("vol24>=100k(+1)"); }
@@ -166,7 +166,7 @@ function scorePair(pair) {
     reasons.push("vol24_undefined(+0)");
   }
 
-  // 4) 买卖压力（5分钟）
+  // 4) Buy/sell pressure (5 minutes)
   if (typeof buys5m === "number" && typeof sells5m === "number") {
     if (buys5m > sells5m) { score += 1; reasons.push("buys5m>sells5m(+1)"); }
     else reasons.push("buys5m<=sells5m(+0)");
@@ -180,7 +180,7 @@ function scorePair(pair) {
     else { score -= 2; reasons.push("fdv>5m(-2)"); }
   } else reasons.push("fdv_undefined(+0)");
 
-  // ===== 增速评分（liq + price）=====
+  // ===== Growth-rate scoring (liquidity + price) =====
   const pairAddr = pair.pairAddress;
   const h = pairAddr ? pairHistory.get(pairAddr) : null;
 
@@ -212,7 +212,7 @@ function scorePair(pair) {
     reasons.push("no_history(+0)");
   }
 
-  // 分数重标定：只对 score>=4 的 +1
+  // Score recalibration: add 1 only when score >= 4
   if (score >= 4) {
     score += 1;
     reasons.push("score_shift(score>=4,+1)");
@@ -252,7 +252,7 @@ function startMonitor({ onSignal, intervalMs = 10_000 } = {}) {
     let pairsSeen = 0;
     let signalsSent = 0;
 
-    // ✅ 统计 -999 的原因
+    // ✅ Track reasons for -999 rejections
     let rejectedTooOld = 0;
 
     const profilesUrl = "https://api.dexscreener.com/token-profiles/latest/v1";
@@ -299,7 +299,7 @@ function startMonitor({ onSignal, intervalMs = 10_000 } = {}) {
 
         const signal = normalizeSignal(pair, scoreObj);
 
-        // 只有高分才去重
+        // Deduplicate only high scores
         if (scoreObj.score >= DEDUP_SCORE) {
           if (alerted.has(pairAddr)) continue;
           alerted.add(pairAddr);
